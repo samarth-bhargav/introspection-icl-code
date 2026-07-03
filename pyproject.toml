@@ -1,0 +1,53 @@
+[project]
+name = "introspection-icl"
+version = "0.1.0"
+description = "Reasoning and learning about injected concepts in language models — experiment + figure pipeline"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "torch",
+    # PINNED: this exact commit ships a Gemma-4 chat template that honors
+    # `enable_thinking=False`. Newer transformers builds (post-2026-04-16)
+    # unconditionally inject a `<|channel>thought<channel|>` block at the
+    # start of every assistant turn, which breaks ICL logit-readout
+    # experiments (see icl/query.py and apply_chat_template usage).
+    # DO NOT bump without re-validating run_queries readouts on Gemma-31B.
+    "transformers @ git+https://github.com/huggingface/transformers.git@8426e7e63d49d9c3b5f0c09d43e792a59c75c62c",
+    "accelerate",
+    "trl>=0.29.0",
+    "peft",
+    "wandb",
+    "python-dotenv",
+    "datasets",
+    "steering-vectors>=0.12.0",
+    "ipykernel>=7.2.0",
+    "huggingface-hub>=0.36.2",
+    "deepspeed>=0.18.8",
+    "plotly>=6.6.0",
+    "nbformat>=5.10.4",
+    "kaleido>=1.2.0",
+    "matplotlib>=3.10.8",
+    "dotenv>=0.9.9",
+    "ipython>=9.10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["icl"]
+
+[dependency-groups]
+dev = ["pytest"]
+vllm = ["vllm>=0.12.0"]
+
+[tool.uv]
+# Pinned to the same commit as the dependency above. See the comment in
+# [project.dependencies] for why this commit is load-bearing.
+override-dependencies = [
+    "transformers @ git+https://github.com/huggingface/transformers.git@8426e7e63d49d9c3b5f0c09d43e792a59c75c62c",
+]

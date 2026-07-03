@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Generated experiment data & figures (regenerate via the pipeline)
+evals/
+plots/
+plots_new/
+artifacts/
+icl/artifacts/
+
+# Local / editor
+.env
+.env.*
+.ipynb_checkpoints/
+.DS_Store
