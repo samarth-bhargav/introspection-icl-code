@@ -1,7 +1,6 @@
 """Run the five-model, six-emotion behavioral sweeps on a GPU work queue.
 
-Uses the existing run settings, including fixed strengths. See
-docs/reproduction-status.md for differences from the manuscript.
+Uses the per-model operating strengths in the manuscript appendix table.
 """
 from __future__ import annotations
 import argparse
@@ -19,9 +18,13 @@ EVALS = REPO / "evals" / "full_6emo"
 LOGS = REPO / "logs" / "gated"
 EMO = "anger,fear,joy,love,sadness,disgust"
 JURL = "http://127.0.0.1:8002/v1"
-# per-model reuse f*
-MF = {"gemma-31b": 0.4, "qwen3-32b": 0.8, "qwen3-8b": 1.0, "olmo-32b": 1.0, "olmo-7b": 0.7}
-SF = {"gemma-31b": 0.4, "qwen3-32b": 0.2, "qwen3-8b": 0.1, "olmo-32b": 0.2, "olmo-7b": 0.1}
+# Import the dependency-free paper configuration; keep one authoritative table.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("paper_config", REPO / "icl/experiments/config.py")
+_config = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_config)
+MF = _config.PAPER_MATH_FRACTIONS
+SF = _config.PAPER_SUCCESSOR_FRACTIONS
 BIG = {"gemma-31b", "qwen3-32b", "olmo-32b"}  # Cannot share an 80 GB GPU with the judge.
 
 

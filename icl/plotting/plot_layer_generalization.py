@@ -408,7 +408,7 @@ def _render_png(sweep_records, layer_groups, model_name, cmax_fraction,
                label="Chance (0.333)")
 
     ax.set_xlabel(r"Test Query Injection Layer $\ell$", fontsize=11)
-    ax.set_ylabel(r"Mean $P(\mathrm{correct})$", fontsize=11)
+    ax.set_ylabel(r"Mean $P(\mathrm{label})$", fontsize=11)
     ax.set_ylim(0, 1.05)
     ax.set_title(
         f"{_model_display(model_name)} Layer Introspection Generalization",
@@ -455,7 +455,7 @@ def _render_png(sweep_records, layer_groups, model_name, cmax_fraction,
     pfig.update_layout(
         title=f"{_model_display(model_name)} Layer Introspection Generalization",
         xaxis_title="Test Query Injection Layer ℓ",
-        yaxis_title="Mean P(correct)",
+        yaxis_title="Mean P(label)",
         yaxis=dict(range=[0, 1.05]),
         template="plotly_white",
         legend=dict(x=1.02, y=1.0),

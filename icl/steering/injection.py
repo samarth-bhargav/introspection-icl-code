@@ -111,28 +111,13 @@ def find_trigger_positions(
     tokenizer: PreTrainedTokenizerBase,
     trigger_text: list[str],
 ) -> list[list[int]]:
-    """Locate steering ranges in *input_ids*.
+    """Locate each complete user-message text, in conversation order.
 
-    Each range starts at a trigger occurrence and extends through all
-    tokens up to and including the next end-of-turn boundary token
-    (auto-detected from the tokenizer).  This means the steering vector
-    is applied to the entire span from the user trigger through the
-    nearest turn boundary.
-
-    Args:
-        input_ids: 1-D tensor of token IDs (single sequence, no batch dim).
-        tokenizer: Tokenizer for encoding *trigger_text*.
-        trigger_text: List of per-turn trigger strings (find one
-            occurrence of each, sequentially).
-
-    Returns:
-        List of position-lists, one per trigger.  Each inner list
-        contains all token indices in the steering range.
+    Only the matched content tokens are injected. Chat-template separators and
+    assistant tokens are outside the paper's user-token intervention span.
     """
     ids = input_ids.tolist()
     seq_len = len(ids)
-
-    boundary_ids = _get_turn_boundary_ids(tokenizer)
 
     # Find one occurrence of each trigger, searching forward
     starts_and_lens: list[tuple[int, int]] = []
@@ -140,6 +125,8 @@ def find_trigger_positions(
     for text in trigger_text:
         tids = tokenizer.encode(text, add_special_tokens=False)
         tlen = len(tids)
+        if not tlen:
+            raise ValueError("Cannot inject an empty user message")
         found = False
         for i in range(search_from, seq_len - tlen + 1):
             if ids[i : i + tlen] == tids:
@@ -153,24 +140,8 @@ def find_trigger_positions(
                 f"starting from position {search_from}."
             )
 
-    # For each trigger, extend to the next turn boundary token
-    occurrences: list[list[int]] = []
-    for start, tlen in starts_and_lens:
-        end = seq_len - 1  # fallback: rest of sequence
-        for j in range(start + tlen, seq_len):
-            if ids[j] in boundary_ids:
-                end = j
-                break
-        occurrences.append(list(range(start, end + 1)))
-
-    # Sanity check: ranges must be sorted and disjoint
-    for i in range(len(occurrences) - 1):
-        if occurrences[i][-1] >= occurrences[i + 1][0]:
-            raise RuntimeError(
-                f"Trigger ranges overlap or are out of order: "
-                f"range {i} ends at {occurrences[i][-1]}, "
-                f"range {i+1} starts at {occurrences[i+1][0]}."
-            )
+    occurrences = [list(range(start, start + length))
+                   for start, length in starts_and_lens]
 
     return occurrences
 

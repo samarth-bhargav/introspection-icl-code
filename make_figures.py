@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -86,10 +85,11 @@ def steps():
              tuple(f"plots/{p.removesuffix('.html')}.png" for p in layer_html)
              + ("plots/layer_generalization_combined.png",),
              "Run icl.experiments.run_model with the layergen stage for each model."),
-        Step("layer-sweeps", (module("apply_paper_styling", "--plots-dir", "plots", "--only", *LAYER_PANELS),),
-             tuple(f"figure_sources/{p}" for p in LAYER_PANELS),
+        Step("layer-sweeps", (module("plot_layer_sweeps"),),
+             tuple(f"evals/regen/layer/type1_{m}.json" for m in MODELS)
+             + tuple(f"evals/regen/layer/type2_{m}_var*.json" for m in MODELS),
              tuple(f"plots/{p.removesuffix('.html')}.png" for p in LAYER_PANELS),
-             "Historical Plotly sources are NOT included; no raw-log renderer for these panels is provided."),
+             "Run the layer strength and prompt-variation sweeps for each model."),
     )
 
 
@@ -100,11 +100,6 @@ def missing_inputs(step, root=REPO):
 
 
 def run_step(step, root=REPO):
-    if step.name == "layer-sweeps":
-        for relative in LAYER_PANELS:
-            src, dst = root / "figure_sources" / relative, root / "plots" / relative
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
     # Remove no files: compare output metadata to detect a renderer silently skipping.
     before = {p: (root / p).stat().st_mtime_ns if (root / p).exists() else None
               for p in step.outputs}

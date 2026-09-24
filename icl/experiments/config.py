@@ -16,7 +16,6 @@ ARTIFACTS_ROOT = REPO_ROOT / "icl" / "artifacts"
 TAG = os.environ.get("REGEN_TAG", "").strip()
 _SUF = f"_{TAG}" if TAG else ""
 EVALS_ROOT = REPO_ROOT / "evals" / (f"regen_{TAG}" if TAG else "regen")
-PAPER_PLOTS = Path("/tmp/paper/plots")  # existing paper figures for comparison
 
 MODELS = ["gemma-31b", "qwen3-32b", "qwen3-8b", "olmo-32b", "olmo-7b"]
 
@@ -48,10 +47,10 @@ LAYER_ANCHORS = {
     "olmo-7b": (5, 16, 27),
 }
 
-# Historical reference values, not the current manuscript table. These are
-# printed for comparison only; operating strengths are selected from sweeps.
-PAPER_MSTAR = {"gemma-31b": 1.50, "qwen3-32b": 2.25, "qwen3-8b": 1.75,
-               "olmo-32b": 2.25, "olmo-7b": 2.00}
+# Operating strengths in the Overleaf appendix table (checked 2026-09-24).
+# New calibration sweeps can select different optima; never overwrite measurements.
+PAPER_MSTAR = {"gemma-31b": 0.50, "qwen3-32b": 0.75, "qwen3-8b": 1.00,
+               "olmo-32b": 0.25, "olmo-7b": 1.00}
 PAPER_FSTAR = {"gemma-31b": 1.25, "qwen3-32b": 1.75, "qwen3-8b": 1.50,
                "olmo-32b": 1.00, "olmo-7b": 1.00}
 
@@ -116,7 +115,7 @@ MAGNITUDE_SYSTEM = (
     "You are participating in a word association experiment. "
     "Each input triggers a specific response: low, medium, or high. "
     "Learn the pattern from examples. "
-    "Respond with only the target word — no preamble, no explanation."
+    "Respond with only the target word -- no preamble, no explanation."
 )
 
 LAYER_LABELS = ["early", "middle", "late"]
@@ -126,15 +125,17 @@ LAYER_SYSTEM = (
     "You are participating in a word association experiment. "
     "Each input triggers a specific response: early, middle, or late. "
     "Learn the pattern from examples. "
-    "Respond with only the target word — no preamble, no explanation."
+    "Respond with only the target word -- no preamble, no explanation."
 )
 
 # ── Sweep grids ─────────────────────────────────────────────────────
 STRENGTH_GRID = [round(0.25 * i, 4) for i in range(0, 21)]  # 0.0 .. 5.0 step 0.25
 TYPE1_K = 30          # n_examples for the strength sweep used to pick m*/f*
 TYPE2_KMAX = 61       # ICL sweep reads K = 0..61 (62 turns, all concepts)
-DEFAULT_N_SAMPLES = 100
+DEFAULT_N_SAMPLES = 30
 CMAX_FLOOR = 0.1
+PAPER_MATH_FRACTIONS = {"gemma-31b": 0.4, "qwen3-32b": 0.8, "qwen3-8b": 1.0, "olmo-32b": 1.0, "olmo-7b": 0.7}
+PAPER_SUCCESSOR_FRACTIONS = {"gemma-31b": 0.5, "qwen3-32b": 0.7, "qwen3-8b": 0.1, "olmo-32b": 0.2, "olmo-7b": 0.1}
 
 # ── c_max binary-search params (match ranges.py / notebook) ─────────
 CMAX_THRESHOLD = 0.95
@@ -176,14 +177,26 @@ def load_cmax(model: str) -> dict[tuple[str, int], float]:
     path = cmax_path(model)
     with open(path) as f:
         data = json.load(f)
+    if data.get("metadata", {}).get("calibration_version") != 2:
+        raise ValueError("Calibration predates the complete 20-question suite; rerun build_library")
     out: dict[tuple[str, int], float] = {}
     for concept, layers in data.get("ranges", {}).items():
         for layer_str, entry in layers.items():
             cm = entry.get("c_max") if isinstance(entry, dict) else entry
-            if cm is not None:
-                out[(concept, int(layer_str))] = float(cm)
+            # A recorded failed lower bound uses the manuscript floor.
+            # Absent entries remain absent: incomplete calibration is an error.
+            out[(concept, int(layer_str))] = CMAX_FLOOR if cm is None else float(cm)
     return out
 
 
 def cmax_or_floor(cmax: dict[tuple[str, int], float], concept: str, layer: int) -> float:
-    return cmax.get((concept, layer), CMAX_FLOOR)
+    try:
+        return cmax[(concept, layer)]
+    except KeyError as exc:
+        raise ValueError(f"missing calibration for {concept} at layer {layer}; rebuild the library") from exc
+
+
+def layer_generalization_cmax(cmax, concept, layer, anchors):
+    """Use only the nearest classification anchor, as specified in the paper."""
+    nearest = min(anchors, key=lambda anchor: abs(anchor - layer))
+    return cmax_or_floor(cmax, concept, nearest)

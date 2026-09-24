@@ -1,11 +1,11 @@
 """Single-pass layer/magnitude introspection sweeps (type1, type2, prompt-var).
 
 type1  : fixed K=30, sweep strength over the 21-point grid -> used to pick the
-         per-model star (m* for magnitude, f* for layer) by the one-standard-error rule at K=30.
+         per-model star (m* for magnitude, f* for layer) by maximum mean p(correct) at K=30.
 type2  : full K=0..61 readout at one chosen strength (the star).
          With --prompt_variation N (0..9) the trigger/system come from
          icl.common.prompt_variations.VARIATIONS (prompt-variation panels);
-         otherwise the canonical main-text prompt is used.
+         otherwise all ten prompt variations are pooled.
 
 Usage:
     python -m icl.experiments.introspection_sweep --model qwen3-8b --gpu 0 --task magnitude --mode type1
@@ -23,36 +23,38 @@ from pathlib import Path
 
 
 def pick_star(type1_json, k: int) -> dict:
-    """Select the first positive strength within one standard error of peak accuracy.
-
-    This rule differs from maximizing mean p(correct) in the manuscript; see
-    docs/reproduction-status.md. Preserve it when reproducing existing runs.
-    """
-    import math
-    data = json.loads(Path(type1_json).read_text())
-    n = data.get("n_samples", 100)
-    curve = []
-    for entry in data["per_strength"]:
-        rec = next((r for r in entry["by_k"] if r["k"] == k), None)
-        if rec is None:
-            continue
-        curve.append((entry["strength"], rec["accuracy"], rec["mean_p"]))
-    max_acc = max(c[1] for c in curve)
-    se = math.sqrt(max_acc * (1 - max_acc) / n) if 0 < max_acc < 1 else 0.0
-    thresh = max_acc - se
-    knee = next((c for c in curve if c[0] > 0 and c[1] >= thresh),
-                max(curve, key=lambda t: t[1]))
-    return {"star": knee[0], "accuracy": knee[1], "mean_p": knee[2],
-            "max_acc": max_acc, "curve": curve}
+    """Choose the strength maximizing mean correct-label probability."""
+    from icl.experiments.selection import pick_mean_probability
+    return pick_mean_probability(type1_json, k)
 
 
 def sweep_and_save(model, tok, library, cmax, *, model_name, task, mode,
                    strength=None, prompt_variation=-1, n_samples, seed=13,
-                   kmax=None, concepts_pool=None):
+                   kmax=None, concepts_pool=None, n_prompt_variations=10):
     """Run one sweep (model already loaded) and write JSON. Returns (path, payload)."""
     from icl.common.prompt_variations import VARIATIONS
     from icl.experiments import config as C
     from icl.experiments import singlepass as SP
+
+    if prompt_variation < 0:
+        from icl.experiments.magnitude import _pool_prompt_sweeps
+        variants = VARIATIONS[f"{task}_introspection"][:n_prompt_variations]
+        if not variants or len(variants) != n_prompt_variations:
+            raise ValueError("n_prompt_variations must be between 1 and 10")
+        runs = []
+        for vi, variant in enumerate(variants):
+            _, payload = sweep_and_save(model, tok, library, cmax, model_name=model_name,
+                task=task, mode=mode, strength=strength, prompt_variation=vi,
+                n_samples=n_samples, seed=seed, kmax=kmax, concepts_pool=concepts_pool)
+            runs.append((vi, variant, payload["per_strength"]))
+        payload.pop("trigger", None)
+        payload.pop("system_prompt", None)
+        payload.update(prompt_variation=None, n_samples=n_samples * len(variants),
+                       n_samples_per_prompt=n_samples, n_prompt_variations=len(variants),
+                       prompt_variations=variants, per_strength=_pool_prompt_sweeps(runs))
+        path = C.EVALS_ROOT / task / f"{mode}_{model_name}.json"
+        path.write_text(json.dumps(payload, indent=2))
+        return path, payload
 
     concepts_pool = concepts_pool or C.CONCEPTS
     if prompt_variation >= 0:

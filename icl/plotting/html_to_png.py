@@ -29,9 +29,7 @@ import plotly.graph_objects as go
 
 
 _PLOTLY_NEWPLOT = re.compile(
-    r"Plotly\.newPlot\(\s*\"[^\"]+\"\s*,\s*(?P<data>\[.*?\])\s*,\s*"
-    r"(?P<layout>\{.*?\})\s*,\s*(?P<config>\{[^)]*\})\s*\)",
-    re.DOTALL,
+    r'Plotly\.newPlot\(\s*"',
 )
 
 
@@ -39,9 +37,20 @@ def _figure_from_html(html: str) -> go.Figure:
     m = _PLOTLY_NEWPLOT.search(html)
     if not m:
         raise ValueError("no Plotly.newPlot(...) call found in HTML")
-    data = json.loads(m.group("data"))
-    layout = json.loads(m.group("layout"))
-    return go.Figure(data=data, layout=layout)
+    # Decode complete JSON arguments: nested subplot layouts can contain
+    # object boundaries that a non-greedy regular expression truncates.
+    remaining = html[m.end() - 1:]
+    decoder = json.JSONDecoder()
+    arguments = []
+    for index in range(3):  # element ID, trace data, layout
+        value, end = decoder.raw_decode(remaining.lstrip())
+        arguments.append(value)
+        remaining = remaining.lstrip()[end:].lstrip()
+        if index < 2:
+            if not remaining.startswith(","):
+                raise ValueError("malformed Plotly.newPlot arguments")
+            remaining = remaining[1:]
+    return go.Figure(data=arguments[1], layout=arguments[2])
 
 
 def render(html_path: Path, *, replacements: list[tuple[str, str]] | None,

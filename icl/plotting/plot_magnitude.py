@@ -215,6 +215,7 @@ def _render_maggen_one(source_root: Path, plots_dir: Path, model: str) -> None:
         fig,
         title=f"{MODEL_DISPLAY[model]} Magnitude Detection Generalization",
         xlabel="Test \u03b1",
+        ylabel="Mean P(label)",
     )
     _write(fig, plots_dir / f"magnitude_generalization_{MODEL_FILE_STEMS[model]}.html")
 
@@ -280,7 +281,7 @@ def _render_maggen_combined(plots_dir: Path) -> None:
     )
     fig.update_xaxes(title_text="Test \u03b1", row=1, col=1, title_font=dict(size=16), tickfont=dict(size=13))
     fig.update_xaxes(title_text="Test \u03b1", row=1, col=2, title_font=dict(size=16), tickfont=dict(size=13))
-    fig.update_yaxes(title_text="Mean P(correct)", range=[0, 1.05], row=1, col=1, title_font=dict(size=16), tickfont=dict(size=13))
+    fig.update_yaxes(title_text="Mean P(label)", range=[0, 1.05], row=1, col=1, title_font=dict(size=16), tickfont=dict(size=13))
     fig.update_yaxes(range=[0, 1.05], row=1, col=2, tickfont=dict(size=13))
     for ann in fig.layout.annotations:
         ann.font = dict(size=16, color="#2a3f5f", family="DejaVu Sans, Arial, sans-serif")

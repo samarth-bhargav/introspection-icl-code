@@ -3,11 +3,10 @@
 Loads one model once and runs two phases, mirroring the magnitude/layer
 introspection convention (``icl.experiments.introspection_sweep``):
 
-  type1 / calibration : a single canonical prompt, fixed n_demos and n_tests,
+  type1 / calibration : prompt variations, fixed n_demos and n_tests,
       sweeping ``cmax_fraction`` over a grid (default 0.0..1.0 step 0.1).  The
-      operating fraction f* is the SMALLEST positive fraction whose overall
-      accuracy is within one binomial standard error of the grid maximum
-      (the "knee" rule used by ``introspection_sweep.pick_star``).
+      operating fraction f* maximizes overall accuracy, breaking ties toward
+      the smaller fraction.
 
   type2 / K-sweep : at f*, sweep K = n_demos over a range (default 0..10) using
       the 10 successor prompt variations, ``samples_per_var`` randomized tests
@@ -28,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import sys
 import time
@@ -264,15 +262,10 @@ def run_calibration(
         )
 
     accs = [(c["cmax_fraction"], c["overall_accuracy"]) for c in curve if c["overall_accuracy"] is not None]
-    n_total = sum((c["overall_n"] or 0) for c in curve) // max(len(curve), 1)
-    max_acc = max(a for _, a in accs) if accs else 0.0
-    se = math.sqrt(max_acc * (1 - max_acc) / n_total) if (0 < max_acc < 1 and n_total) else 0.0
-    thresh = max_acc - se
-    # knee: smallest POSITIVE fraction within 1 SE of the max; fallback to argmax.
-    knee = next((f for f, a in accs if f > 0 and a >= thresh), None)
-    if knee is None:
-        knee = max(accs, key=lambda t: t[1])[0] if accs else 0.0
-    best_frac = knee
+    if not accs:
+        raise ValueError("successor calibration produced no accuracy measurements")
+    max_acc = max(a for _, a in accs)
+    best_frac = max(accs, key=lambda t: (t[1], -t[0]))[0]
 
     calib = {
         "experiment": "successor_calibration",
@@ -283,8 +276,7 @@ def run_calibration(
         "n_tests": n_tests * len(variations),
         "fractions": fractions,
         "max_accuracy": max_acc,
-        "se": se,
-        "threshold": thresh,
+        "selection_metric": "accuracy",
         "best_cmax_fraction": best_frac,
         "curve": curve,
         "timestamp": datetime.now().isoformat(),
@@ -292,7 +284,7 @@ def run_calibration(
     (out_dir / f"calibration_{model_name}.json").write_text(json.dumps(calib, indent=2))
     print(
         f"[calib] {model_name} CHOSEN f*={best_frac:.2f} "
-        f"(max_acc={max_acc:.3f} se={se:.3f})",
+        f"(max_acc={max_acc:.3f})",
         flush=True,
     )
     return calib

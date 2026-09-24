@@ -32,6 +32,11 @@ def fixtures(root):
             write_json(root, f"{driver.MAG}/magnitude/{kind}_{model}.json",
                        {"per_strength": [{"strength": strength, "by_k": by_k}
                                          for strength in ((0.25, 1) if kind == "type1" else (1,))]})
+        write_json(root, f"evals/regen/layer/type1_{model}.json",
+                   {"per_strength": [{"strength": strength, "by_k": by_k} for strength in (.25, 1.)]})
+        for vi in (0, 1):
+            write_json(root, f"evals/regen/layer/type2_{model}_var{vi}.json",
+                       {"per_strength": [{"strength": 1., "by_k": by_k}]})
         write_json(root, f"{driver.MAG}/magnitude_generalization/magnitude_generalization_{model}.json",
                    {"anchor_levels": [["low", 0.25], ["medium", 1], ["high", 2.5]],
                     "records": [{"test_alpha": alpha, "samples": [
@@ -60,10 +65,6 @@ def fixtures(root):
             payload = {"cmax_fraction": fraction, "rows": rows}
             write_json(root, f"evals/regen/generation_{model}/math/type1_cmax_sweep/math_{model}_k10_cmax{fraction}.json", payload)
             write_json(root, f"evals/regen/successor_cmax_sweep/{model}/fraction_{fraction:.2f}.json", payload)
-    for relative in driver.LAYER_PANELS:
-        path = root / "figure_sources" / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        go.Figure(go.Scatter(x=[0, 1], y=[0.4, 0.6], name="synthetic fixture")).write_html(path)
 
 
 def main():

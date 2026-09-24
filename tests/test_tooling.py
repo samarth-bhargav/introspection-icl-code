@@ -15,12 +15,12 @@ from scripts import run_gated
 
 
 class FigureDriverTests(unittest.TestCase):
-    def test_empty_checkout_reports_missing_historical_layer_sources(self):
+    def test_empty_checkout_reports_missing_layer_measurements(self):
         step = next(s for s in figures.steps() if s.name == "layer-sweeps")
         with tempfile.TemporaryDirectory() as tmp:
             missing = figures.missing_inputs(step, Path(tmp))
-        self.assertEqual(len(missing), 3)
-        self.assertTrue(all(p.startswith("figure_sources/") for p in missing))
+        self.assertEqual(len(missing), 10)
+        self.assertTrue(all(p.startswith("evals/regen/layer/") for p in missing))
 
     def test_one_model_is_not_enough_for_a_five_model_group(self):
         step = next(s for s in figures.steps() if s.name == "math-modes")
@@ -50,7 +50,7 @@ class FigureDriverTests(unittest.TestCase):
                                    "--check", "--only", "layer-sweeps"],
                                   capture_output=True, text=True)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("figure_sources", proc.stdout)
+        self.assertIn("evals/regen/layer", proc.stdout)
         self.assertNotIn("ModuleNotFoundError", proc.stderr)
 
     def test_lazy_package_keeps_configuration_cpu_only(self):
@@ -96,6 +96,18 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(env["CUDA_VISIBLE_DEVICES"], "3")
             self.assertEqual(env["HF_HOME"], "/tmp/user-cache")
             self.assertEqual(env["HF_HUB_OFFLINE"], "0")
+
+
+class HtmlFigureTests(unittest.TestCase):
+    def test_combined_subplot_html_round_trip(self):
+        from plotly.subplots import make_subplots
+        import plotly.graph_objects as go
+        from icl.plotting.html_to_png import _figure_from_html
+        figure = make_subplots(rows=1, cols=2, subplot_titles=("Left", "Right"))
+        figure.add_trace(go.Scatter(x=[0, 1], y=[.2, .8]), row=1, col=1)
+        figure.add_trace(go.Scatter(x=[0, 1], y=[.7, .3]), row=1, col=2)
+        restored = _figure_from_html(figure.to_html(include_plotlyjs="cdn"))
+        self.assertEqual(restored.to_plotly_json(), figure.to_plotly_json())
 
 
 class BehavioralLoaderTests(unittest.TestCase):

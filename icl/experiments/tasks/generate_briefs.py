@@ -40,7 +40,8 @@ def main():
                 {"role": "user", "content": f"Amendment number: {n}. Answer briefly."}]
         text = SP.render_chat(tok, msgs, add_generation_prompt=True, enable_thinking=False)
         ids = tok.encode(text, return_tensors="pt", add_special_tokens=False).to(device)
-        out = model.generate(ids, max_new_tokens=48, do_sample=False, pad_token_id=tok.eos_token_id)
+        out = model.generate(ids, attention_mask=torch.ones_like(ids), max_new_tokens=48,
+                             do_sample=False, pad_token_id=tok.eos_token_id)
         ans = tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True).strip().split("\n", 1)[0].strip()
         briefs.append(ans)
         print(f"[selfbriefs] {m} amdt {n:>2}: {ans[:80]}", flush=True)

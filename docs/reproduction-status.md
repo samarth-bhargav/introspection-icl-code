@@ -1,86 +1,108 @@
-# Reproduction audit
+# Reproduction and validation
 
-Audited against the code in commit `a20f38d` and the manuscript sections supplied
-in the accompanying review. This is a source and CPU-tooling audit, not a rerun
-of the five models. The reported paper scores have not been independently
-reproduced. No evaluation logs or model artifacts are included in this checkout.
+The manuscript defines the methods. The code now uses the settings below.
+Historical evaluation logs are not included, so matching the reported numerical
+scores remains unverified. Reduced GPU tests check execution and scientific
+invariants; they do not estimate the paper’s results.
 
-## Coverage
+## Methods and figure coverage
 
-| Result | Generator / renderer | Status |
-| --- | --- | --- |
-| Concept vectors and comprehension thresholds | `build_library`; `steering/ranges.py` | Implemented; GPU validation still needed. |
-| Magnitude strength and example-count sweeps; generalization | `experiments.magnitude`; `plotting.plot_magnitude` | Connected generator and renderer; selection and vector-source differences below. |
-| Layer strength and example-count sweeps; prompt sensitivity | `experiments.run_model` | Generates JSON, but the figure driver only restyles three historical Plotly files that are **not supplied**. No renderer connects these raw sweeps to those figures. |
-| Layer generalization | `experiments.run_layer_gen`; `plotting.plot_layer_generalization` | JSON writer and rerenderer are connected; default runner uses one prompt, with calibration borrowed from the nearest anchor at uncalibrated layers. |
-| Six-emotion behavioral example-count sweeps | `tasks.run_arithmetic`, `tasks.run_successor`; `plotting.plot_gated` | Implemented; requires concept libraries, successor self-briefs, and a running judge. |
-| Anger subset, behavioral prompt sensitivity, injection-condition breakdowns | `plot_anger`, `plot_gated`, `plot_math_modes`, `plot_successor_modes` | Derived from the six-emotion row-level logs. |
-| Behavioral strength-sweep appendix figures | `plotting.plot_strength_sweep` | Expects a separate older run under `evals/regen`, not the six-emotion k sweeps. Those logs and an authoritative historical run recipe are absent. Current runners can produce new sweeps, but their equivalence is unverified. |
+| Component | Implementation |
+| --- | --- |
+| Concept vectors | 20 description prompts per concept; mean generated-token activations; one-vs-rest contrast; unit L2 norm. Full runs use all 62 concepts. |
+| Injection | Add coefficient × live token L2 norm × unit vector to user-content tokens only. Chat separators and assistant tokens are excluded. |
+| Calibration | 20 arithmetic questions, vocabulary argmax, ≥95% accuracy; binary search over [0.1, 5] until width ≤0.1. A failed lower bound is recorded and uses the paper’s 0.1 floor. Missing entries are errors. |
+| Classification strength | Maximize mean p(correct) at k=30; exact ties choose the smaller strength. |
+| Sampling | 30 samples per prompt × 10 prompt variations by default; test concepts held out from demonstrations. |
+| Generalization | k=20; magnitude anchors are m* × {0.25, 1, 2.5}; layer tests use the nearest of the three anchor calibrations. |
+| Behavioral tasks | Six randomly chosen target emotions; target/distractor/none probabilities 0.5/0.25/0.25; Qwen3-8B judge. Fixed operating strengths match the appendix table. |
+| Figures | All nine groups, including the three layer panels, render directly from generated JSON. No historical Plotly sources are required. |
 
-## Differences to resolve before claiming paper reproduction
+The old calibration suite silently skipped multi-token answers: Qwen3-8B
+resolved only 7 of its 20 questions. The replacement suite uses single-digit
+answers and refuses to skip questions. This changes newly computed thresholds;
+it cannot recover the paper’s original thresholds. Calibration files carry a
+version and the full question list, and incompatible caches must be rebuilt.
 
-1. **Strength selection.** `magnitude.pick_argmax_star` maximizes hard-label
-   accuracy among positive strengths, breaking ties toward the smaller strength.
-   `introspection_sweep.pick_star` instead selects the first positive strength
-   within one binomial standard error of peak accuracy. The manuscript says
-   maximum mean `p(correct)`. These objectives can choose different strengths.
-   Successor calibration also uses a one-standard-error rule.
-2. **Successor operating strengths.** The retained six-emotion scheduler uses
-   Gemma / Qwen-32B / Qwen-8B / Olmo-32B / Olmo-7B fractions of
-   `0.4 / 0.2 / 0.1 / 0.2 / 0.1`. The reviewed appendix table gives
-   `0.5 / 0.7 / 0.1 / 0.5 / 0.1`. The cleanup preserves the executable settings;
-   neither set should be substituted for the other without checking run records.
-3. **Magnitude vector provenance.** `experiments/magnitude.py` documents that
-   Gemma and Qwen-32B originally used different research-cache constructions.
-   This repository uses the one-vs-rest library for all models. Its comment
-   mentions a five-sample parity check, but the check's evidence is not bundled.
-4. **Sample and prompt counts.** The generic `run_model` default is 100 samples
-   per prompt; the manuscript describes 30 samples across 10 prompts. The
-   instructions pass `--n_samples 30` explicitly. Generic `run_layer_gen` uses
-   only the canonical prompt. A separate evaluator in
-   `plotting/plot_layer_generalization.py` supports prompt variations but expects
-   legacy artifact filenames, so it is not a drop-in replacement.
-5. **Calibration semantics.** The injection hook does use
-   `h <- h + alpha * ||h||_2 * v`, measuring norms before addition.
-   `compute_max_strength` bisects until the interval is at most 0.1 wide;
-   it does not search a fixed 0.1-spaced grid. If the lower bound fails, it returns
-   `None`. Generic callers may substitute 0.1 later; the dedicated magnitude
-   loader rejects missing calibration entries. Calibration also skips questions
-   whose answers cannot be represented by one token (or whose span is not found).
-6. **Historical auditability.** The single-pass sweeps save per-sample correct
-   probabilities and aggregate correctness, but not complete predictions, target
-   labels, and concept plans. Calibration saves thresholds rather than all
-   question-level outcomes. Add the missing records before new scientific runs
-   that require these breakdowns; existing files cannot reconstruct them fully.
+The appendix’s example “9+10 → 19” is not a single-token answer under Qwen3’s
+tokenizer. The implementation follows the explicit 20-single-token-question rule.
+Some figure captions call the classification metric accuracy; the implementation
+follows the methods’ explicit definition of mean p(correct). The canonical
+magnitude and layer prompts match the appendix. The other nine variants retain
+the repository’s wording; the manuscript does not enumerate them.
 
-## What this cleanup changes
+## Validation record
 
-- Places behavioral plotters in `icl/plotting`, the brief generator in
-  `icl/experiments/tasks`, and the optional scheduler in `scripts`.
-- Removes fixed author-machine paths and forced offline Hugging Face settings;
-  uses the active Python interpreter and user-supplied cache settings.
-- Allows plotting without importing the inference stack.
-- Checks required figure inputs before rendering and verifies that renderers
-  actually wrote their expected PNGs. Individual figure groups can be selected.
-- Keeps experiment algorithms, seeds, fixed strengths, output paths, and the
-  Transformers pin unchanged. The figure check is not a numerical validation.
+- CPU regression checks: 17 pass.
+- Linux CPU figure test: all 9 groups render all 32 expected PNGs from synthetic
+  fixtures. This checks file contracts and export, not scientific results.
+- The pinned inference environment installs using `uv sync --locked` on Linux.
+- vLLM 0.12.0 with the pinned Transformers build loaded Qwen3-8B on H200 and
+  passed real matching/nonmatching judge requests using the documented eager-mode command.
+- Real H200 integrations passed for all five models in `yu-masala-workspace`.
+  Each retained 240 behavioral cases, 240 uninjected controls, and 482 real judge
+  requests, with all six emotions and no unparseable judge responses.
 
-The three missing historical layer sources would need to be restored under
-`figure_sources/type1/` and `figure_sources/type2/`, or replaced by a validated
-renderer for the raw logs. Supplying arbitrary substitute curves would not
-reproduce the paper.
+| Model | Completed integration run |
+| --- | --- |
+| Qwen3-8B | `qwen3-8b-20260924-v2` |
+| Qwen3-32B | `qwen3-32b-20260924-v1` |
+| OLMo-7B | `olmo-7b-20260924-v2` |
+| OLMo-32B | `olmo-32b-20260924-v1` |
+| Gemma-31B | `gemma-31b-20260924-v1` |
 
-## Validation of the cleanup
+The final classification audit passed on all five models after restoring the
+canonical manuscript prompts. Run IDs are `final-prompts-20260924-v1-<model>`;
+each verifies token positions for all 20 classification prompt templates and
+reuses the separately
+verified behavioral results. The [machine-readable record](validation-2026-09-24.json)
+contains the tested source hash and exact weight revisions. After the GPU audit, generalization
+axes were relabeled “Mean P(label)” and the HTML parser was fixed for nested
+subplot layouts. Re-exporting verified the labels; the parser passes a subplot
+round-trip regression test and reads all 37 exported HTML files.
 
-- Nine CPU regression tests pass, including missing-file detection, stale-output
-  detection, emotion filtering, prompt-level aggregation, and scheduler failures.
-- `python tests/render_smoke.py` renders all nine figure groups and checks 32 PNG
-  outputs using **synthetic fixtures in a temporary checkout**. The synthetic
-  historical layer inputs test restyling only; they do not replace the missing
-  paper sources. Tested with Python 3.13, NumPy 2.5.3, Plotly 7.1.0, Kaleido 1.4.0,
-  and Matplotlib 3.11.2.
-- The wheel builds, `uv lock --check --offline` passes, and an empty checkout's
-  figure-input check correctly exits unsuccessfully.
+All nine figure groups also rendered their 32 expected PNGs from these measured
+outputs (`real-figures` in the same volume). They are reduced-test figures, not
+reproductions of the paper’s numerical results.
 
-GPU inference, judge scoring, the full CUDA dependency installation, and agreement
-with published scores remain untested in this audit.
+The integration test uses eight concepts (including all six emotions), two prompt
+variants, two classification samples per prompt, a sparse strength grid, all
+model layers, and reduced behavioral sweeps with uninjected controls. It checks
+unit vectors, the injection equation, zero-scale equivalence, hook cleanup,
+causal readouts, real generation, and real Qwen judge requests. It exercises the
+production HTTP judge client through a serial Transformers server. The separate
+vLLM check verifies the documented serving command and judge-client integration.
+
+Each run retains `status.json`, `run.log`, `measurements.jsonl`, concept artifacts,
+and evaluation JSON in the `introspection-icl-validation` Modal volume. Traces
+contain predictions, targets, prompt/concept plans, probabilities, calibration
+numerators and denominators, timings, and judge responses. Source hashes and
+model revisions identify the code and weights. These are functional-test outputs,
+not substitutes for missing historical paper data.
+
+## Re-run the bounded checks
+
+The Modal harness targets the requested team workspace and reserves a conservative
+GPU-cost bound before each launch. Its local budget ledger is `logs/modal-budget.json`.
+Do not remove that ledger while work is ongoing. A reservation may be reduced
+only when a stopped app’s entire lifetime establishes a smaller upper bound;
+these estimates are not billed usage reports.
+
+```bash
+MODAL_PROFILE=yu-masala-workspace modal run scripts/modal_validate.py \
+  --stage prepare --model qwen3-8b
+MODAL_PROFILE=yu-masala-workspace modal run scripts/modal_validate.py \
+  --stage detection --model qwen3-8b --run-id UNIQUE_RUN_ID
+MODAL_PROFILE=yu-masala-workspace modal run scripts/modal_validate.py --stage render
+```
+
+`prepare` downloads weights without reserving a GPU. Each GPU invocation stops
+its subprocess after 40 minutes and preserves partial measurements. The GPU is
+released after that invocation. Download a run’s logs and measurements with:
+
+```bash
+MODAL_PROFILE=yu-masala-workspace modal volume get \
+  introspection-icl-validation RUN_ID logs/validation
+```
+
+The detailed experiment commands are in [experiments.md](experiments.md).

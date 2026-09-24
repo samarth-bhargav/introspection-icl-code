@@ -4,18 +4,18 @@ Code for *Reasoning and learning about injected concepts in language models*.
 The experiments test injection-magnitude classification, injection-layer
 classification, emotion-gated arithmetic, and amendment successor.
 
-**Reproduction status:** the experiment code is included, but this checkout does
-not yet reproduce every paper figure end to end. Three layer plots require
-historical inputs that are absent, and some experiment settings differ from the
-manuscript. See [the audit](docs/reproduction-status.md) before running a full
-reproduction. Model weights, evaluation logs, and figures are not bundled.
+The pipeline generates the paper's figure inputs from fresh runs. It uses the
+paper's calibration, strength-selection metric, prompt counts, and operating
+strengths. Historical measurements and model weights are not bundled; fresh
+results need not match the published numbers. See the
+[validation record](docs/reproduction-status.md) for tested coverage.
 
 ## Setup
 
-Use Python 3.13+ on Linux with CUDA for model inference:
+Use Python 3.13 on Linux with CUDA for model inference:
 
 ```bash
-uv sync --locked
+uv sync --locked --python 3.13
 source .venv/bin/activate
 ```
 
@@ -39,10 +39,7 @@ PNG export needs Chrome or Chromium. If none is installed, run
 For one model (`qwen3-8b` shown):
 
 ```bash
-python -m icl.experiments.build_library --model qwen3-8b --gpu 0
-python -m icl.experiments.magnitude run --model qwen3-8b --gpu 0
-python -m icl.experiments.run_model --model qwen3-8b --gpu 0 \
-  --stages layer,layergen --n_samples 30
+python -m icl.experiments.run_model --model qwen3-8b --gpu 0
 ```
 
 [Experiment instructions](docs/experiments.md) cover the other models, judge,
@@ -63,9 +60,11 @@ Missing inputs stop rendering; they are not silently treated as completed figure
 - `icl/steering/`: concept vectors, live-norm injection, and calibration.
 - `icl/experiments/`: magnitude/layer runners; `tasks/` contains behavioral tasks.
 - `icl/plotting/`: figure renderers, including six-emotion and anger subsets.
-- `scripts/`: optional multi-GPU orchestration.
+- `scripts/`: multi-GPU orchestration and bounded Modal validation.
 - `docs/`: experiment instructions and reproduction audit.
 - `tests/`: CPU checks (`python -m unittest discover -s tests`).
 
 Generated files retain their existing locations: `icl/artifacts/` for concept
 libraries, `evals/` for measurements, and `plots/` / `plots_new/` for paper figures.
+Detailed per-example traces are saved under `evals/traces/`; set `ICL_TRACE_PATH`
+to choose another location.

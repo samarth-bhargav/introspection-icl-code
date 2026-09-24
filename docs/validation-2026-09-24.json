@@ -1,0 +1,93 @@
+{
+  "date": "2026-09-24",
+  "scope": "Reduced functional tests: 8 concepts, 2 sampled prompt variants, 2 classification samples per prompt, sparse strength grid, all model layers. Token and injection-span checks cover all 20 classification prompt templates. Not paper-score reproduction.",
+  "torch": "2.9.0+cu128",
+  "transformers_commit": "8426e7e63d49d9c3b5f0c09d43e792a59c75c62c",
+  "gpu": "NVIDIA H200",
+  "classification_source_sha256": "5fde9bffb445e380edaba1fd5a1c81c13bdef25c524fdddfd328253ce85b1987",
+  "cpu_tests_passed": 17,
+  "vllm_judge": {
+    "version": "0.12.0",
+    "run": "qwen3-vllm-20260924-v1",
+    "state": "passed"
+  },
+  "models": [
+    {
+      "model": "qwen3-8b",
+      "integration_run": "qwen3-8b-20260924-v2",
+      "classification_audit_run": "final-prompts-20260924-v1-qwen3-8b",
+      "weights_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "behavioral_cases": 240,
+      "uninjected_controls": 240,
+      "judge_requests": 482,
+      "judge_parse_failures": 0,
+      "state": "passed"
+    },
+    {
+      "model": "qwen3-32b",
+      "integration_run": "qwen3-32b-20260924-v1",
+      "classification_audit_run": "final-prompts-20260924-v1-qwen3-32b",
+      "weights_revision": "9216db5781bf21249d130ec9da846c4624c16137",
+      "behavioral_cases": 240,
+      "uninjected_controls": 240,
+      "judge_requests": 482,
+      "judge_parse_failures": 0,
+      "state": "passed"
+    },
+    {
+      "model": "olmo-7b",
+      "integration_run": "olmo-7b-20260924-v2",
+      "classification_audit_run": "final-prompts-20260924-v1-olmo-7b",
+      "weights_revision": "6e5971d9eba42665f5bd5a0fcf047f299ce1dccc",
+      "behavioral_cases": 240,
+      "uninjected_controls": 240,
+      "judge_requests": 482,
+      "judge_parse_failures": 0,
+      "state": "passed"
+    },
+    {
+      "model": "olmo-32b",
+      "integration_run": "olmo-32b-20260924-v1",
+      "classification_audit_run": "final-prompts-20260924-v1-olmo-32b",
+      "weights_revision": "ac0587e4a7744a551c059d8cd17ba220bc940dae",
+      "behavioral_cases": 240,
+      "uninjected_controls": 240,
+      "judge_requests": 482,
+      "judge_parse_failures": 0,
+      "state": "passed"
+    },
+    {
+      "model": "gemma-31b",
+      "integration_run": "gemma-31b-20260924-v1",
+      "classification_audit_run": "final-prompts-20260924-v1-gemma-31b",
+      "weights_revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "behavioral_cases": 240,
+      "uninjected_controls": 240,
+      "judge_requests": 482,
+      "judge_parse_failures": 0,
+      "state": "passed"
+    }
+  ],
+  "measured_figure_render": {
+    "state": "passed",
+    "figure_groups": 9,
+    "expected_pngs": 32,
+    "volume_directory": "real-figures"
+  },
+  "rendering_source_sha256": "21afbe8a91bc93f9c72230b099875eb2c56eca9ca78a1154cfe837176940e6b8",
+  "post_gpu_audit_changes": {
+    "files": [
+      "icl/plotting/plot_magnitude.py",
+      "icl/plotting/plot_layer_generalization.py",
+      "icl/plotting/build_combined_layer.py",
+      "icl/plotting/html_to_png.py"
+    ],
+    "description": "Generalization axis labels corrected and nested Plotly HTML parsing fixed. No measurement or inference changes."
+  },
+  "html_parser_checks": {
+    "exported_html_files": 37,
+    "state": "passed",
+    "regression": "Combined subplot round trip"
+  },
+  "final_source_sha256": "603d67f0b70ff641b6ee01a3da18db3fa2332acb4665f19bef8e19d58c7bfd3e"
+}

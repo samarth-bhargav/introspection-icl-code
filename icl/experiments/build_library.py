@@ -31,10 +31,12 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
                         n_generated_tokens=20, rebuild=False, force_cmax=False):
     """Build the mean-diff library + c_max for `model_name` (model already loaded)."""
     import torch
+    from icl.experiments.telemetry import emit
     from steering_vectors import SteeringVector
     from icl import compute_max_strength
     from icl.steering.concepts import ConceptLibrary, format_as_chat
     from icl.steering.injection import _get_target_module
+    from icl.steering.ranges import _QA_PAIRS
     from icl.experiments import config as C
 
     concepts = concepts or C.CONCEPTS
@@ -55,8 +57,9 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
         input_ids = tok.encode(chat, return_tensors="pt",
                                add_special_tokens=False).to(device)
         with torch.no_grad():
-            full_ids = model.generate(input_ids, max_new_tokens=n_generated_tokens,
-                                      do_sample=False)
+            full_ids = model.generate(input_ids, attention_mask=torch.ones_like(input_ids),
+                                      max_new_tokens=n_generated_tokens, do_sample=False,
+                                      pad_token_id=tok.eos_token_id)
         return full_ids, input_ids.shape[1]
 
     def multilayer_means(full_ids, prompt_len: int):
@@ -84,6 +87,11 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
 
     # ── Build (or load) the mean-diff library ──────────────────────
     if lib_path.exists() and meta_p.exists() and not rebuild:
+        previous = json.loads(meta_p.read_text())
+        if (previous.get("concepts") != concepts or
+                previous.get("n_generated_tokens") != n_generated_tokens or
+                previous.get("description_prompt_templates") != C.DESCRIPTION_PROMPT_TEMPLATES):
+            raise ValueError("Cached vector construction differs from this run; use --rebuild")
         _log(f"loading existing library: {lib_path}")
         library = ConceptLibrary.load(lib_path)
     else:
@@ -93,8 +101,12 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
         for ci, concept in enumerate(concepts, 1):
             cs = time.time()
             acc: dict[int, "torch.Tensor"] = {}
-            for tmpl in C.DESCRIPTION_PROMPT_TEMPLATES:
+            for prompt_id, tmpl in enumerate(C.DESCRIPTION_PROMPT_TEMPLATES):
                 full, prompt_len = generate_continuation(tmpl.format(concept=concept))
+                emit("vector_extraction", model=model_name, concept=concept,
+                     prompt_id=prompt_id, prompt=tmpl.format(concept=concept),
+                     token_ids=full[0].tolist(), prompt_length=prompt_len,
+                     generated_text=tok.decode(full[0, prompt_len:], skip_special_tokens=True))
                 for li, v in multilayer_means(full, prompt_len).items():
                     acc[li] = v if li not in acc else acc[li] + v
             per_concept_sum[concept] = acc
@@ -128,14 +140,24 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
         _log(f"library saved: {lib_path} ({time.time()-t0:.1f}s elapsed)")
 
     # ── c_max calibration ──────────────────────────────────────────
-    if cmax_p.exists() and not force_cmax:
+    calibration_questions = [list(pair) for pair in _QA_PAIRS]
+    if cmax_p.exists() and not force_cmax and not rebuild:
         cache = json.loads(cmax_p.read_text())
+        if (cache.get("metadata", {}).get("questions") != calibration_questions or
+                cache.get("metadata", {}).get("calibration_version") != 2):
+            _log("calibration suite changed; recomputing c_max")
+            force_cmax = True
     else:
+        force_cmax = True
+    if force_cmax:
         cache = {"metadata": {
             "method": "compute_max_strength", "model": model_name,
             "library_path": str(lib_path), "threshold": C.CMAX_THRESHOLD,
             "precision": C.CMAX_PRECISION, "search_lo": C.CMAX_SEARCH_LO,
             "search_hi": C.CMAX_SEARCH_HI,
+            "questions": calibration_questions, "injection_span": "user_content_only",
+            "calibration_version": 2,
+            "scaling": "coefficient_times_live_L2_norm_times_unit_vector",
             "created_at": datetime.now(timezone.utc).isoformat()}, "ranges": {}}
 
     _log(f"computing c_max for {len(concepts)} concepts x {len(cmax_ls)} layers {cmax_ls}")
@@ -151,6 +173,9 @@ def build_and_calibrate(model, tok, model_name, *, concepts=None,
                 threshold=C.CMAX_THRESHOLD, precision=C.CMAX_PRECISION,
                 search_lo=C.CMAX_SEARCH_LO, search_hi=C.CMAX_SEARCH_HI)
             cache["ranges"].setdefault(concept, {})[ls] = {"c_max": cm}
+            emit("calibration_result", model=model_name, concept=concept, layer=layer,
+                 raw_cmax=cm, effective_cmax=C.CMAX_FLOOR if cm is None else cm,
+                 lower_bound_failed=cm is None)
             n_done += 1
             if n_done % 10 == 0:
                 cmax_p.write_text(json.dumps(cache, indent=2))

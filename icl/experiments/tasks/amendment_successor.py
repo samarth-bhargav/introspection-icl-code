@@ -490,6 +490,9 @@ def run_amendment_successor(
                 )
 
             rows.append(row)
+            from icl.experiments.telemetry import emit
+            emit("behavioral_outcome", task="successor", model=model_name, seed=seed,
+                 fraction=cmax_fraction, layer=layer, prompt_variation=prompt_variation, row=row)
             row_i += 1
 
         if verbose and n_rollouts > 1:
