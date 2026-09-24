@@ -453,7 +453,6 @@ def main() -> None:
 
     if args.gpu is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
 
     repo_root = Path(__file__).resolve().parents[3]
     if str(repo_root) not in sys.path:
@@ -461,7 +460,7 @@ def main() -> None:
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 
@@ -507,7 +506,7 @@ def main() -> None:
                    else C.ARTIFACTS_ROOT / args.model / "amendment_self_briefs.json")
         if not sb_path.exists():
             raise FileNotFoundError(
-                f"self-demo briefs not found: {sb_path}. Run gen_self_briefs.py for "
+                f"self-demo briefs not found: {sb_path}. Run python -m icl.experiments.tasks.generate_briefs --model "
                 f"{args.model}, or pass --no_self_demos to use canned briefs."
             )
         demo_briefs = json.loads(sb_path.read_text())["briefs"]

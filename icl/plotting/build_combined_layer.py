@@ -6,7 +6,7 @@ and applies the same ``STANDARD_LAYOUT`` used by ``apply_paper_styling``.
 
 Run::
 
-    python3 /workspace/Introspection-RL/icl/plotting/build_combined_layer.py
+    python -m icl.plotting.build_combined_layer
 """
 from __future__ import annotations
 

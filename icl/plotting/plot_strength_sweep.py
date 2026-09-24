@@ -209,7 +209,8 @@ def _overlay(by_model: dict[str, list[dict]], html_path: Path, *, title: str, xl
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", default=str(_REPO))
-    ap.add_argument("--plots-dir", default="/workspace/Introspection ICL - ARXIV/plots")
+    ap.add_argument("--plots-dir", default="plots")
+    ap.add_argument("--kind", choices=["all", "type1", "type2", "prompt_sigma"], default="all")
     args = ap.parse_args()
 
     repo = Path(args.repo)
@@ -234,6 +235,8 @@ def main() -> None:
     ]
 
     for exp, kind, loader, title, xlabel, html_path in specs:
+        if args.kind != "all" and kind != args.kind:
+            continue
         by_model = {}
         for model in MODELS:
             rows = loader(repo, model)

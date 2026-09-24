@@ -1,18 +1,8 @@
-"""Magnitude introspection using the constitution-sweep vector sources.
+"""Magnitude classification and generalization with one-vs-rest concept vectors.
 
-This runner deliberately does not rebuild steering vectors.  In this
-self-contained package it reuses the shipped one-vs-rest mean-diff library
-(``meandiff_ovr``) for ALL five models (see the SOURCE_SPECS note below):
-
-* gemma-31b   -> artifact meandiff_ovr
-* qwen3-32b   -> artifact meandiff_ovr
-* qwen3-8b    -> artifact meandiff_ovr
-* olmo-7b     -> artifact meandiff_ovr
-* olmo-32b    -> artifact meandiff_ovr
-
-It then runs the paper-style magnitude type1/type2/generalization evaluations
-at the 20%-depth magnitude layer from ``icl.experiments.config`` and renders plots in
-the same style as the other paper plots.
+Load libraries built by icl.experiments.build_library, run strength and example-
+count sweeps at 20% model depth, and save measurements for the paper renderers.
+See docs/reproduction-status.md for differences from historical vector sources.
 
 Usage:
     python -m icl.experiments.magnitude run --model gemma-31b --gpu 0
@@ -41,11 +31,9 @@ _CONFIG_SPEC.loader.exec_module(C)
 
 
 OUT_ROOT = C.EVALS_ROOT / "constitution_source_magnitude"
-# NOTE (Introspection-ICL-Final): standardized on meandiff_ovr for ALL models so the
-# package is self-contained on the shipped 5 concept libraries (no 1.3GB `research`
-# cache). In the original repo, gemma-31b/qwen3-32b magnitude used research_cache
-# (neu_last_l2 / neu_meangen_l2); the n=5 parity check confirmed meandiff_ovr
-# reproduces those curves. Magnitude for gemma-31b & qwen3-32b must be re-run here.
+# All models use the rebuilt one-vs-rest library. Historical Gemma/Qwen-32B
+# runs used research_cache methods neu_last_l2 / neu_meangen_l2. The old export
+# mentioned a five-sample parity check, but did not include its evidence.
 SOURCE_SPECS = {
     "gemma-31b": {
         "source": "artifact_meandiff",
@@ -83,14 +71,13 @@ def _log(msg: str) -> None:
 
 def _boot(gpu: str) -> None:
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 

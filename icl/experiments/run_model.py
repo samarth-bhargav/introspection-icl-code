@@ -39,13 +39,12 @@ def main() -> None:
     stages = set(s.strip() for s in args.stages.split(",") if s.strip())
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 

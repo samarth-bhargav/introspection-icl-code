@@ -17,7 +17,7 @@ emits both the ``.html`` twin and the ``.png`` (via kaleido) used in the paper.
 Usage:
     python -m icl.plotting.plot_math_modes \
         --gen_root evals/regen \
-        --out_dir "/workspace/Introspection ICL - ARXIV/plots/math_modes"
+        --out_dir plots/math_modes
 """
 from __future__ import annotations
 

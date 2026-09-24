@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-FINAL = Path("/workspace/Introspection-ICL-Final")
+REPO = Path(__file__).resolve().parents[3]
 SUMM_SYS = ("Summarize the given U.S. constitutional amendment in one short "
             "plain-English sentence. Reply only with the summary.")
 
@@ -20,9 +20,7 @@ def main():
     ap.add_argument("--gpu", default="0")
     args = ap.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ["HF_HOME"] = "/opt/hf-cache"
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    sys.path.insert(0, str(FINAL))
+    sys.path.insert(0, str(REPO))
 
     import torch
     from icl import get_model_and_tokenizer
@@ -47,7 +45,7 @@ def main():
         briefs.append(ans)
         print(f"[selfbriefs] {m} amdt {n:>2}: {ans[:80]}", flush=True)
 
-    out_dir = FINAL / "icl" / "artifacts" / m
+    out_dir = REPO / "icl" / "artifacts" / m
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "amendment_self_briefs.json"
     out_path.write_text(json.dumps({"model": m, "n_amendments": n_amend,

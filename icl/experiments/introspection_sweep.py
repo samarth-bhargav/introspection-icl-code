@@ -1,7 +1,7 @@
 """Single-pass layer/magnitude introspection sweeps (type1, type2, prompt-var).
 
 type1  : fixed K=30, sweep strength over the 21-point grid -> used to pick the
-         per-model star (m* for magnitude, f* for layer) by argmax accuracy@K=30.
+         per-model star (m* for magnitude, f* for layer) by the one-standard-error rule at K=30.
 type2  : full K=0..61 readout at one chosen strength (the star).
          With --prompt_variation N (0..9) the trigger/system come from
          icl.common.prompt_variations.VARIATIONS (prompt-variation panels);
@@ -23,16 +23,10 @@ from pathlib import Path
 
 
 def pick_star(type1_json, k: int) -> dict:
-    """Pick the operating strength α* from a type1 sweep at K=k.
+    """Select the first positive strength within one standard error of peak accuracy.
 
-    Parsimony "knee" rule: the SMALLEST strength (>0) whose accuracy is within
-    one binomial standard error of the maximum accuracy on the grid. The paper
-    selects the argmax ("maximizes mean p(correct)"), but its contrastive-vector
-    curves PEAK; our one-vs-rest layer curves are strength-robust PLATEAUS, so a
-    raw argmax lands on a noisy high point. The knee gives the minimal injection
-    achieving statistically-best performance — matching the paper's operating
-    points (α* ~1-1.75) and yielding milder, cleaner generalisation. For peaked
-    (magnitude) curves the knee coincides with the argmax peak.
+    This rule differs from maximizing mean p(correct) in the manuscript; see
+    docs/reproduction-status.md. Preserve it when reproducing existing runs.
     """
     import math
     data = json.loads(Path(type1_json).read_text())
@@ -110,7 +104,7 @@ def sweep_and_save(model, tok, library, cmax, *, model_name, task, mode,
         star = pick_star(out_path, sk)
         ref = C.PAPER_MSTAR[model_name] if task == "magnitude" else C.PAPER_FSTAR[model_name]
         print(f"[sweep] STAR ({task}) = {star['star']} acc@K{sk}={star['accuracy']:.3f} "
-              f"(paper ref {ref})", flush=True)
+              f"(historical ref {ref})", flush=True)
     return out_path, payload
 
 
@@ -141,10 +135,9 @@ def main() -> None:
 
     import os
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     try:
         from dotenv import load_dotenv
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 

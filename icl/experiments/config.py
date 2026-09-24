@@ -29,7 +29,7 @@ N_LAYERS = {
     "olmo-7b": 32,
 }
 
-# CHANGED (user request): magnitude injection layer = round(0.20 * n_layers).
+# Magnitude injection layer = round(0.20 * n_layers).
 MAGNITUDE_LAYER = {
     "gemma-31b": 12,
     "qwen3-32b": 13,
@@ -39,7 +39,7 @@ MAGNITUDE_LAYER = {
 }
 
 # Layer-introspection anchor layers (early, middle, late) at ~15%/50%/85% depth.
-# AUTHORITATIVE: PDF Appendix B (Introspection_ICL___ARXIV (2).pdf), Table of layers.
+# Anchor indices from the manuscript layer table.
 LAYER_ANCHORS = {
     "gemma-31b": (9, 30, 51),
     "qwen3-32b": (10, 32, 54),
@@ -48,8 +48,8 @@ LAYER_ANCHORS = {
     "olmo-7b": (5, 16, 27),
 }
 
-# Paper Table tab:best_cf values — used ONLY as a sanity reference; the actual
-# m*/f* are re-derived from the new type-1 strength sweeps.
+# Historical reference values, not the current manuscript table. These are
+# printed for comparison only; operating strengths are selected from sweeps.
 PAPER_MSTAR = {"gemma-31b": 1.50, "qwen3-32b": 2.25, "qwen3-8b": 1.75,
                "olmo-32b": 2.25, "olmo-7b": 2.00}
 PAPER_FSTAR = {"gemma-31b": 1.25, "qwen3-32b": 1.75, "qwen3-8b": 1.50,

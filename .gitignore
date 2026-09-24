@@ -23,3 +23,6 @@ icl/artifacts/
 .env.*
 .ipynb_checkpoints/
 .DS_Store
+
+# Local run logs
+logs/

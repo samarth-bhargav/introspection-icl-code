@@ -61,7 +61,7 @@ def main() -> None:
     )
     ap.add_argument(
         "--plots-dir",
-        default="/workspace/Introspection ICL - ARXIV/plots",
+        default="plots",
     )
     args = ap.parse_args()
 

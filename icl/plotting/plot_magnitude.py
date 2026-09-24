@@ -295,7 +295,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--plots-dir",
-        default="/workspace/Introspection ICL - ARXIV/plots",
+        default="plots",
     )
     args = parser.parse_args()
 

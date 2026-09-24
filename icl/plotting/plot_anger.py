@@ -11,18 +11,18 @@ Outputs into <repo>/plots/anger/type2/:
   type2_amendment_successor.{html,png}
 
 Usage:
-  PYTHONPATH=/workspace/Introspection-ICL-Final \
-    /workspace/Introspection-RL/.venv/bin/python gated6/plot_anger_figs.py
+  python -m icl.plotting.plot_anger
 """
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 from pathlib import Path
 
 from icl.plotting.plot_strength_sweep import MODELS, _overlay, _row
 
-REPO = Path("/workspace/Introspection-ICL-Final")
+REPO = Path(__file__).resolve().parents[2]
 BASE = REPO / "evals" / "full_6emo"
 OUT = REPO / "plots" / "anger"
 EMOTION = "anger"
@@ -62,6 +62,7 @@ SPECS = [
 
 
 def main() -> None:
+    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
     (OUT / "type2").mkdir(parents=True, exist_ok=True)
     for loader, title, html_path in SPECS:
         by_model = {}

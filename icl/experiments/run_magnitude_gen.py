@@ -97,12 +97,11 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
     import torch
