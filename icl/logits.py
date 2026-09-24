@@ -88,4 +88,6 @@ def _resolve_group_ids(
             )
             continue
         ids.append(encoded[0])
-    return ids
+    # Some tokenizers map both surface forms to the same token. A probability
+    # is counted once per vocabulary entry, as in the paper's answer set A_x.
+    return list(dict.fromkeys(ids))

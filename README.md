@@ -1,119 +1,70 @@
-# Introspection-ICL — code only
+# Introspection ICL
 
-The **source code** to reproduce the paper *"Reasoning and learning about
-injected concepts in language models"* — the experiment pipeline plus the
-figure-plotting scripts. This is a code-only tree: **no eval datasets, no model
-artifacts, no rendered figures**. Generate the data on a GPU (see below), then
-render the figures.
+Code for *Reasoning and learning about injected concepts in language models*.
+The experiments test injection-magnitude classification, injection-layer
+classification, emotion-gated arithmetic, and amendment successor.
 
-> A companion package with the eval data + concept libraries already shipped
-> (so the figures render with no GPU) lives in `../Introspection-ICL-Final`.
+The pipeline generates the paper's figure inputs from fresh runs. It uses the
+paper's calibration, strength-selection metric, prompt counts, and operating
+strengths. Historical measurements and model weights are not bundled; fresh
+results need not match the published numbers. See the
+[validation record](docs/reproduction-status.md) for tested coverage.
 
-The label-substitution appendix figure and its scripts are intentionally
-omitted here.
+## Setup
 
-## What's here
-
-```
-icl/
-  model.py query.py logits.py utils.py     core ICL primitives
-  common/                    helpers shared across all experiments
-    helpers.py                 c_max cache + small run helpers
-    layer_introspection.py     layer concept pool + early/middle/late anchors
-    prompt_variations.py       per-task prompt-variation banks
-  steering/                  concept-vector construction + injection
-  experiments/               the canonical experiment pipeline
-    config.py                  models, layers, concept pool, sweep grids
-    build_library.py           per-model mean-diff concept library + c_max
-    run_model.py               build -> magnitude/layer sweeps -> generalization
-    magnitude.py               magnitude type1/type2/generalization data
-    singlepass.py introspection_sweep.py   single-pass ICL readout core
-    tasks/                     emotion-gated behavioral tasks
-      gated_arithmetic.py  run_arithmetic.py    arithmetic task + sweep runner
-      amendment_successor.py  run_successor.py   successor task + sweep runner
-      amendment_common.py  successor_prompts.py  task_utils.py   shared helpers
-  plotting/                  the Plotly paper-figure renderers + apply_paper_styling
-gated6/                      orchestration for the 6-emotion gated runs
-  scheduler.py gen_self_briefs.py
-  plot_full_6emo_figs.py plot_anger_figs.py
-make_figures.py              render every figure once the eval data exists
-pyproject.toml  uv.lock
-```
-
-## Install
+Use Python 3.13 on Linux with CUDA for model inference:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e .                 # honors the pinned transformers commit
+uv sync --locked --python 3.13
+source .venv/bin/activate
 ```
 
-The `transformers` pin in `pyproject.toml` is **load-bearing** (newer builds
-break the Gemma logit readouts). The data-generation steps need a CUDA GPU and
-the vLLM extra: `pip install -e '.[vllm]'`. Rendering needs a headless-Chromium
-backend for Kaleido:
+The Transformers commit is pinned for the Gemma chat template. Keep that pin
+unless you have checked the label readouts. Behavioral experiments also need a
+Qwen3-8B judge; install it with `uv sync --locked --group vllm`.
+
+For plotting existing logs without the inference stack:
 
 ```bash
-sudo apt-get install -y libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 \
-  libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 libasound2
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-plotting.txt
 ```
 
-## Reproduce (data → figures)
+PNG export needs Chrome or Chromium. If none is installed, run
+`plotly_get_chrome`. Run the commands below from the repository root.
 
-Models (short name → HF id, from `icl/model.py`): `gemma-31b`→`google/gemma-4-31B-it`,
-`qwen3-32b`→`Qwen/Qwen3-32B`, `qwen3-8b`→`Qwen/Qwen3-8B`,
-`olmo-32b`→`allenai/Olmo-3.1-32B-Instruct`, `olmo-7b`→`allenai/Olmo-3-7B-Instruct`.
+## Run
 
-**1. Concept libraries** (one per model; written to `icl/artifacts/<model>/`):
+For one model (`qwen3-8b` shown):
 
 ```bash
-python -m icl.experiments.build_library --model <short> --gpu 0
-python gated6/gen_self_briefs.py   --model <short> --gpu 0   # successor briefs
+python -m icl.experiments.run_model --model qwen3-8b --gpu 0
 ```
 
-**2. Magnitude / layer / generalization data:**
+[Experiment instructions](docs/experiments.md) cover the other models, judge,
+behavioral tasks, output paths, and optional multi-GPU runner.
 
 ```bash
-python -m icl.experiments.run_model --model <short> --gpu 0                 # sweeps + generalization
-python -m icl.experiments.magnitude run --model <short> --gpu 0   # magnitude figures' data
+python make_figures.py --list                 # figure groups and commands
+python make_figures.py --check                # required input files
+python make_figures.py --only magnitude       # render one complete group
+python make_figures.py                        # all groups, if inputs are present
 ```
 
-**3. Judge daemon** (only for the gated tasks) — a Qwen3-8B judge over an
-OpenAI-compatible endpoint; start it once and leave it running:
+`--check` checks file presence, not complete sweeps or agreement with the paper.
+Missing inputs stop rendering; they are not silently treated as completed figures.
 
-```bash
-CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen3-8B \
-  --served-model-name synonym-judge \
-  --host 127.0.0.1 --port 8002 \
-  --dtype bfloat16 --gpu-memory-utilization 0.35 --max-model-len 4096
-curl -s http://127.0.0.1:8002/v1/models     # wait for HTTP 200
-```
+## Layout
 
-**4. Emotion-gated arithmetic + amendment-successor data** (judge must be up;
-per-model best strength `f*` shown):
+- `icl/steering/`: concept vectors, live-norm injection, and calibration.
+- `icl/experiments/`: magnitude/layer runners; `tasks/` contains behavioral tasks.
+- `icl/plotting/`: figure renderers, including six-emotion and anger subsets.
+- `scripts/`: multi-GPU orchestration and bounded Modal validation.
+- `docs/`: experiment instructions and reproduction audit.
+- `tests/`: CPU checks (`python -m unittest discover -s tests`).
 
-```bash
-EMO=anger,fear,joy,love,sadness,disgust ; JURL=http://127.0.0.1:8002/v1
-
-# arithmetic    f*: gemma .4  qwen3-32b .8  qwen3-8b 1.0  olmo-32b 1.0  olmo-7b .7
-python -m icl.experiments.tasks.run_arithmetic --model <short> --gpu 1 \
-  --emotion_pool "$EMO" --k_values 0-20 --k_type1 10 --cmax_grid <f*> \
-  --prompt_variations 10 --n_tests 30 --target_prob 0.5 --distractor_prob 0.25 \
-  --max_operand 9 --max_new_tokens 8 --seed 0 \
-  --judge_base_url "$JURL" --judge_model synonym-judge \
-  --out_dir evals/full_6emo/generation_<short>/math
-
-# successor     f*: gemma .4  qwen3-32b .2  qwen3-8b .1  olmo-32b .2  olmo-7b .1
-python -m icl.experiments.tasks.run_successor --model <short> --gpu 1 \
-  --randomize_emotion --emotion_pool "$EMO" --fraction <f*> --skip_calibration \
-  --k_values 0-10 --n_variations 10 --samples_per_var 30 \
-  --target_prob 0.5 --distractor_prob 0.25 --max_new_tokens 40 --seed 13 \
-  --out_root evals/full_6emo --run_name successor_emotions \
-  --judge_base_url "$JURL" --judge_model synonym-judge
-```
-
-**5. Render the figures** into `plots/` and `plots_new/`:
-
-```bash
-PYTHONPATH=. python make_figures.py            # all figures
-PYTHONPATH=. python make_figures.py --list     # figure -> command map
-```
+Generated files retain their existing locations: `icl/artifacts/` for concept
+libraries, `evals/` for measurements, and `plots/` / `plots_new/` for paper figures.
+Detailed per-example traces are saved under `evals/traces/`; set `ICL_TRACE_PATH`
+to choose another location.

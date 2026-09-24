@@ -256,7 +256,7 @@ def _generate_prompt_steered(
         import torch
 
         with torch.no_grad():
-            out = model.generate(input_ids, **gen_kwargs)
+            out = model.generate(input_ids, attention_mask=torch.ones_like(input_ids), **gen_kwargs)
     finally:
         for handle in handles:
             handle.remove()
@@ -761,6 +761,9 @@ def run_emotion_math_multiplier(
                 )
 
             rows.append(row)
+            from icl.experiments.telemetry import emit
+            emit("behavioral_outcome", task="arithmetic", model=model_name, seed=seed,
+                 fraction=cmax_fraction, layer=layer, row=row)
             row_i += 1
 
         if verbose and n_rollouts > 1:
@@ -879,13 +882,12 @@ def main() -> None:
     parser.add_argument("--no_control", action="store_true")
     args = parser.parse_args()
 
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[3]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 

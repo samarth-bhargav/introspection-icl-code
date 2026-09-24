@@ -6,7 +6,7 @@ and applies the same ``STANDARD_LAYOUT`` used by ``apply_paper_styling``.
 
 Run::
 
-    python3 /workspace/Introspection-RL/icl/plotting/build_combined_layer.py
+    python -m icl.plotting.build_combined_layer
 """
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def main() -> None:
                      title_font=dict(size=16), tickfont=dict(size=13))
     fig.update_xaxes(title_text="Test layer", row=1, col=2,
                      title_font=dict(size=16), tickfont=dict(size=13))
-    fig.update_yaxes(title_text="Mean P(correct)", range=[0, 1.05], row=1, col=1,
+    fig.update_yaxes(title_text="Mean P(label)", range=[0, 1.05], row=1, col=1,
                      title_font=dict(size=16), tickfont=dict(size=13))
     fig.update_yaxes(range=[0, 1.05], row=1, col=2, tickfont=dict(size=13))
 

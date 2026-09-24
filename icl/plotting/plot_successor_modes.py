@@ -18,7 +18,7 @@ omitted (this is a 27-way free-generation task, not 3-way classification).
 Usage:
     .venv/bin/python -m icl.plotting.plot_successor_modes \
         --root evals/regen/successor_k_sweep \
-        --plots-dir "/workspace/Introspection ICL - ARXIV/plots"
+        --plots-dir plots
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def _render_mode(by_model: dict[str, list[dict]], out_html: Path, *, title: str,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default="evals/regen/successor_k_sweep")
-    ap.add_argument("--plots-dir", default="/workspace/Introspection ICL - ARXIV/plots")
+    ap.add_argument("--plots-dir", default="plots")
     ap.add_argument("--subdir", default="successor", help="subdir under plots-dir for outputs")
     args = ap.parse_args()
 

@@ -13,7 +13,8 @@ LAYER_INTROSPECTION_VARIATIONS = [
         "system_prompt": (
             "You are participating in a word association experiment. "
             "Each input triggers a specific response: early, middle, or late. "
-            "Learn the pattern from examples."
+            "Learn the pattern from examples. Respond with only the target word "
+            "-- no preamble, no explanation."
         ),
     },
     # 1
@@ -101,26 +102,19 @@ LAYER_INTROSPECTION_VARIATIONS = [
 
 # ── Magnitude Introspection ─────────────────────────────────────────
 
-# OPTIMIZED magnitude prompts (Introspection-ICL-Final, 2026-06-14).
-# Replaces the old "word-association / The injection strength is" set, which
-# under-elicited the meandiff_ovr library (gemma k20~0.70-0.80, qwen3-32b ~0.78).
-# These share the winning ingredients found by the prompt search: an explicit
-# ORDERED scale (low < medium < high) and/or "strength of the injected signal"
-# introspective framing. var0 = scale_ordering and var1 = long_trigger were
-# validated at n=120/fresh seed (gemma k20 0.91/0.88, qwen3-32b 0.88/0.88 — i.e.
-# matching the prior research_cache curves with the meandiff_ovr library alone);
-# vars 2-9 are paraphrases in the same family for the 10-prompt sensitivity pool.
+# Variation 0 matches the manuscript; the remaining entries paraphrase the task.
 MAGNITUDE_INTROSPECTION_VARIATIONS = [
-    # 0: scale_ordering (best, validated)
+    # 0: manuscript prompt
     {
-        "prompt_text": "On the low-medium-high scale, this is",
+        "prompt_text": "The injection strength is",
         "system_prompt": (
-            "Each input has a hidden strength on a scale where low < medium < high. "
-            "Learn the scale from the examples and report the strength. "
-            "Respond with only the target word."
+            "You are participating in a word association experiment. "
+            "Each input triggers a specific response: low, medium, or high. "
+            "Learn the pattern from examples. Respond with only the target word "
+            "-- no preamble, no explanation."
         ),
     },
-    # 1: long_trigger (validated)
+    # 1: longer trigger
     {
         "prompt_text": "Reading this sentence, the strength of the signal injected into my thoughts is",
         "system_prompt": (

@@ -265,6 +265,11 @@ def _run_single_query(
     # 5. Extract token logits
     logits_dict, probs_dict = extract_token_logits(logits, query.output_tokens, tokenizer)
     top_token = max(probs_dict, key=probs_dict.get)  # type: ignore[arg-type]
+    from dataclasses import asdict
+    from icl.experiments.telemetry import emit
+    emit("classification_query", query=asdict(query), input_ids=input_ids[0].tolist(),
+         injection_positions=trigger_positions, probabilities=probs_dict,
+         prediction=top_token)
 
     # 6. Optionally get top-k from full vocab
     top_k_tokens = None

@@ -1,7 +1,6 @@
 """Full math (emotion-gated arithmetic) introspection run in a single model load.
 
-Two phases, sharing one model load (important: the generation model lives on the
-slow MooseFS volume, so reloading per-config would be prohibitively expensive):
+Two phases share one model load:
 
   Phase 1 (type-1 c_max calibration): fix K = --k_type1, sweep --cmax_grid and
       record accuracy at each c_max_fraction.  The c_max maximizing overall judge
@@ -149,7 +148,6 @@ def main() -> None:
 
     if args.gpu is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
 
     repo_root = Path(__file__).resolve().parents[3]
     if str(repo_root) not in sys.path:
@@ -157,7 +155,7 @@ def main() -> None:
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 

@@ -12,11 +12,11 @@ Only type2 (k-sweep) data exists in the rerun; type1 strength-sweep was not
 re-run, so those figures are intentionally not regenerated here.
 
 Usage:
-  PYTHONPATH=/workspace/Introspection-ICL-Final \
-    /workspace/Introspection-RL/.venv/bin/python gated6/plot_full_6emo_figs.py
+  python -m icl.plotting.plot_gated
 """
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import os
@@ -26,7 +26,7 @@ from icl.plotting.plot_strength_sweep import (
     MODELS, _ci, _overlay, _row, _sigma_row,
 )
 
-REPO = Path("/workspace/Introspection-ICL-Final")
+REPO = Path(__file__).resolve().parents[2]
 BASE = REPO / "evals" / "full_6emo"
 OUT = REPO / "plots" / "full_6emo"
 K_LABEL = "In-Context Examples (<i>k</i>)"
@@ -99,6 +99,7 @@ SPECS = [
 
 
 def main() -> None:
+    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
     (OUT / "type2").mkdir(parents=True, exist_ok=True)
     for loader, title, html_path in SPECS:
         by_model = {}

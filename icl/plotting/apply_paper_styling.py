@@ -9,7 +9,7 @@ PNG twin via Kaleido.
 Usage::
 
     python -m icl.plotting.apply_paper_styling \
-        --plots-dir "/workspace/Introspection ICL/plots"
+        --plots-dir plots
 """
 from __future__ import annotations
 
@@ -220,7 +220,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
         "--plots-dir",
-        default="/workspace/Introspection ICL/plots",
+        default="plots",
         help="Directory containing the paper's plot HTML/PNG files.",
     )
     ap.add_argument(

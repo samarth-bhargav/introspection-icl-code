@@ -105,14 +105,13 @@ def successor_type2(repo: Path, model: str) -> list[dict]:
 
 
 def successor_type1(repo: Path, model: str) -> list[dict]:
-    rows = []
+    by_fraction: dict[float, list[float]] = {}
     for fp in glob.glob(str(repo / f"evals/regen/successor_cmax_sweep/{model}/fraction_*.json")):
         d = json.loads(Path(fp).read_text())
-        r = _row(d["cmax_fraction"], [float(x["p_correct"]) for x in d.get("rows", []) if x.get("p_correct") is not None])
-        if r:
-            rows.append(r)
-    rows.sort(key=lambda r: r["x"])
-    return rows
+        by_fraction.setdefault(float(d["cmax_fraction"]), []).extend(
+            float(x["p_correct"]) for x in d.get("rows", []) if x.get("p_correct") is not None)
+    return [row for fraction, values in sorted(by_fraction.items())
+            if (row := _row(fraction, values)) is not None]
 
 
 # ---- prompt-sensitivity loaders (band = ±1σ over the 10 prompt-level means) ---- #
@@ -209,7 +208,8 @@ def _overlay(by_model: dict[str, list[dict]], html_path: Path, *, title: str, xl
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", default=str(_REPO))
-    ap.add_argument("--plots-dir", default="/workspace/Introspection ICL - ARXIV/plots")
+    ap.add_argument("--plots-dir", default="plots")
+    ap.add_argument("--kind", choices=["all", "type1", "type2", "prompt_sigma"], default="all")
     args = ap.parse_args()
 
     repo = Path(args.repo)
@@ -234,6 +234,8 @@ def main() -> None:
     ]
 
     for exp, kind, loader, title, xlabel, html_path in specs:
+        if args.kind != "all" and kind != args.kind:
+            continue
         by_model = {}
         for model in MODELS:
             rows = loader(repo, model)

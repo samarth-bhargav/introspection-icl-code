@@ -1,18 +1,8 @@
-"""Magnitude introspection using the constitution-sweep vector sources.
+"""Magnitude classification and generalization with one-vs-rest concept vectors.
 
-This runner deliberately does not rebuild steering vectors.  In this
-self-contained package it reuses the shipped one-vs-rest mean-diff library
-(``meandiff_ovr``) for ALL five models (see the SOURCE_SPECS note below):
-
-* gemma-31b   -> artifact meandiff_ovr
-* qwen3-32b   -> artifact meandiff_ovr
-* qwen3-8b    -> artifact meandiff_ovr
-* olmo-7b     -> artifact meandiff_ovr
-* olmo-32b    -> artifact meandiff_ovr
-
-It then runs the paper-style magnitude type1/type2/generalization evaluations
-at the 20%-depth magnitude layer from ``icl.experiments.config`` and renders plots in
-the same style as the other paper plots.
+Load libraries built by icl.experiments.build_library, run strength and example-
+count sweeps at 20% model depth, and save measurements for the paper renderers.
+See docs/reproduction-status.md for validation scope.
 
 Usage:
     python -m icl.experiments.magnitude run --model gemma-31b --gpu 0
@@ -41,38 +31,8 @@ _CONFIG_SPEC.loader.exec_module(C)
 
 
 OUT_ROOT = C.EVALS_ROOT / "constitution_source_magnitude"
-# NOTE (Introspection-ICL-Final): standardized on meandiff_ovr for ALL models so the
-# package is self-contained on the shipped 5 concept libraries (no 1.3GB `research`
-# cache). In the original repo, gemma-31b/qwen3-32b magnitude used research_cache
-# (neu_last_l2 / neu_meangen_l2); the n=5 parity check confirmed meandiff_ovr
-# reproduces those curves. Magnitude for gemma-31b & qwen3-32b must be re-run here.
-SOURCE_SPECS = {
-    "gemma-31b": {
-        "source": "artifact_meandiff",
-        "method": "meandiff_ovr",
-        "summary": "constitution_fraction_sweep_gemma-31b_meandiff_ovr.json",
-    },
-    "qwen3-32b": {
-        "source": "artifact_meandiff",
-        "method": "meandiff_ovr",
-        "summary": "constitution_fraction_sweep_qwen3-32b_meandiff_ovr.json",
-    },
-    "qwen3-8b": {
-        "source": "artifact_meandiff",
-        "method": "meandiff_ovr",
-        "summary": "constitution_fraction_sweep_qwen3-8b_meandiff_ovr.json",
-    },
-    "olmo-7b": {
-        "source": "artifact_meandiff",
-        "method": "meandiff_ovr",
-        "summary": "constitution_fraction_sweep_olmo-7b_meandiff_ovr.json",
-    },
-    "olmo-32b": {
-        "source": "artifact_meandiff",
-        "method": "meandiff_ovr",
-        "summary": "constitution_fraction_sweep_olmo-32b_meandiff_ovr.json",
-    },
-}
+SOURCE_SPECS = {model: {"source": "artifact_meandiff", "method": "meandiff_ovr"}
+                for model in C.MODELS}
 
 Z = 1.96
 
@@ -83,14 +43,13 @@ def _log(msg: str) -> None:
 
 def _boot(gpu: str) -> None:
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 
@@ -105,41 +64,8 @@ def _concepts(smoke_concepts: int = 0) -> list[str]:
     return C.CONCEPTS if smoke_concepts <= 0 else C.CONCEPTS[:smoke_concepts]
 
 
-def _source_summary_path(model: str) -> Path:
-    spec = _source_spec(model)
-    return C.EVALS_ROOT / "constitution" / spec["summary"]
-
-
-def _cmax_cache_path(out_root: Path, model: str, n_concepts: int) -> Path:
-    spec = _source_spec(model)
-    suffix = "" if n_concepts == len(C.CONCEPTS) else f"_n{n_concepts}"
-    return out_root / "cmax" / f"{model}_{spec['method']}_L{C.MAGNITUDE_LAYER[model]}{suffix}.json"
-
-
-def _load_cmax_file(path: Path) -> dict[tuple[str, int], float]:
-    data = json.loads(path.read_text())
-    out = {}
-    for concept, layers in data["ranges"].items():
-        for layer, rec in layers.items():
-            out[(concept, int(layer))] = float(rec["c_max"])
-    return out
-
-
-def _write_cmax_file(path: Path, model: str, method: str, cmax: dict[tuple[str, int], float]) -> None:
-    ranges = {}
-    for (concept, layer), value in sorted(cmax.items()):
-        ranges.setdefault(concept, {})[str(layer)] = {"c_max": float(value)}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "metadata": {
-            "model": model,
-            "method": method,
-            "magnitude_layer": C.MAGNITUDE_LAYER[model],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "source_summary": str(_source_summary_path(model)),
-        },
-        "ranges": ranges,
-    }, indent=2))
+def _source_metadata_path(model: str) -> Path:
+    return C.metadata_path(model)
 
 
 def load_source_library_and_cmax(
@@ -151,92 +77,27 @@ def load_source_library_and_cmax(
     out_root: Path,
     force_cmax: bool = False,
 ):
-    """Load the constitution-source ConceptLibrary and c_max at the mag layer."""
-    import torch
-    from icl.steering.ranges import _prepare_comprehension_inputs
-
-    spec = _source_spec(model_name)
-    mag_layer = C.MAGNITUDE_LAYER[model_name]
-
-    if spec["source"] == "artifact_meandiff":
-        from icl.steering.concepts import ConceptLibrary
-
-        lib_path = C.library_path(model_name)
-        _log(f"{model_name}: loading artifact library {lib_path}")
-        library = ConceptLibrary.load(lib_path)
-        cmax = C.load_cmax(model_name)
-        missing = [c for c in concepts if c not in library]
-        if missing:
-            raise ValueError(f"{model_name}: concepts missing from artifact library: {missing}")
-        missing_cmax = [c for c in concepts if (c, mag_layer) not in cmax]
-        if missing_cmax:
-            raise ValueError(f"{model_name}: c_max missing at L{mag_layer}: {missing_cmax}")
-        return library, cmax
-
-    if spec["source"] != "research_cache":
-        raise ValueError(spec["source"])
-
-    from research.steering_construction.constructions import METHODS
-    from research.steering_construction.lab import cache_path, _compute_cmax
-
-    cp = cache_path(model_name)
-    if not cp.exists():
-        raise FileNotFoundError(f"missing research stats cache: {cp}")
-    if spec["method"] not in METHODS:
-        raise ValueError(f"unknown construction method {spec['method']!r}")
-
-    _log(f"{model_name}: building in-memory {spec['method']} library from {cp}")
-    stats = torch.load(cp, weights_only=False)
-    rest_pool = list(stats["concepts"])
-    missing = [c for c in concepts if c not in rest_pool]
+    """Load the paper's one-vs-rest library and magnitude-layer calibration."""
+    from icl.steering.concepts import ConceptLibrary
+    _source_spec(model_name)
+    lib_path = C.library_path(model_name)
+    if force_cmax:
+        from icl.experiments.build_library import build_and_calibrate
+        metadata = json.loads(C.metadata_path(model_name).read_text())
+        build_and_calibrate(model, tok, model_name, concepts=metadata["concepts"], force_cmax=True)
+    library = ConceptLibrary.load(lib_path)
+    cmax = C.load_cmax(model_name)
+    missing = [c for c in concepts if c not in library]
     if missing:
-        raise ValueError(f"{model_name}: concepts missing from stats cache: {missing}")
-    builder, kwargs = METHODS[spec["method"]]
-    library = builder(
-        stats,
-        concepts=concepts,
-        layers=[mag_layer],
-        rest_pool=rest_pool,
-        **kwargs,
-    )
-
-    cache_path_out = _cmax_cache_path(out_root, model_name, len(concepts))
-    if cache_path_out.exists() and not force_cmax:
-        _log(f"{model_name}: loading cached c_max {cache_path_out}")
-        cmax = _load_cmax_file(cache_path_out)
-    else:
-        _log(f"{model_name}: computing c_max for {len(concepts)} concepts at L{mag_layer}")
-        comp_inputs = _prepare_comprehension_inputs(tok, next(model.parameters()).device)
-        cmax = _compute_cmax(model, tok, library, concepts, [mag_layer], comp_inputs)
-        _write_cmax_file(cache_path_out, model_name, spec["method"], cmax)
-        _log(f"{model_name}: wrote c_max {cache_path_out}")
+        raise ValueError(f"{model_name}: concepts missing from artifact library: {missing}")
+    for concept in concepts:
+        C.cmax_or_floor(cmax, concept, C.MAGNITUDE_LAYER[model_name])
     return library, cmax
 
 
 def pick_argmax_star(type1_json: Path, k: int) -> dict:
-    data = json.loads(type1_json.read_text())
-    curve = []
-    for entry in data["per_strength"]:
-        rec = next((r for r in entry["by_k"] if r["k"] == k), None)
-        if rec is not None:
-            curve.append((float(entry["strength"]), float(rec["accuracy"]), float(rec["mean_p"])))
-    if not curve:
-        raise ValueError(f"no K={k} records in {type1_json}")
-    positive_curve = [row for row in curve if row[0] > 0]
-    selection_curve = positive_curve or curve
-    max_acc = max(row[1] for row in selection_curve)
-    star, acc, mean_p = min(
-        (row for row in selection_curve if row[1] >= max_acc - 1e-12),
-        key=lambda r: r[0],
-    )
-    return {
-        "star": star,
-        "accuracy": acc,
-        "mean_p": mean_p,
-        "max_acc": max(row[1] for row in curve),
-        "max_positive_acc": max_acc,
-        "curve": curve,
-    }
+    from icl.experiments.selection import pick_mean_probability
+    return pick_mean_probability(type1_json, k)
 
 
 def _magnitude_prompt_variations(n_prompt_variations: int) -> list[tuple[int, dict]]:
@@ -361,7 +222,7 @@ def _write_sweep_payload(
         "mode": mode,
         "model": model_name,
         "source": spec,
-        "source_summary": str(_source_summary_path(model_name)),
+        "source_metadata": str(_source_metadata_path(model_name)),
         "trigger": C.MAGNITUDE_TRIGGER,
         "system_prompt": C.MAGNITUDE_SYSTEM,
         "n_samples": n_samples,
@@ -659,7 +520,12 @@ def run_magnitude_generalization(
                     r.probabilities
                     for r in run_queries(queries, model=model, tokenizer=tok, concept_library=library)
                 ]
-            for probabilities in probs_list:
+            for sample_id, (query, probabilities) in enumerate(zip(queries, probs_list)):
+                from dataclasses import asdict
+                from icl.experiments.telemetry import emit
+                emit("magnitude_generalization_sample", model=model_name,
+                     seed=seed, prompt_variation=prompt_idx, sample_id=sample_id,
+                     test_alpha=ta, query=asdict(query), probabilities=probabilities)
                 pred = max(probabilities, key=probabilities.get)
                 counts[pred] += 1
                 prompt_counts[pred] += 1
@@ -668,6 +534,7 @@ def run_magnitude_generalization(
                     p_sums[lab] += prob
                     prompt_p_sums[lab] += prob
                 samples.append({
+                    "sample_id": sample_id, "query": asdict(query),
                     "prompt_variation": prompt_idx,
                     "prompt_text": prompt_var["prompt_text"],
                     "predicted": pred,
@@ -709,7 +576,7 @@ def run_magnitude_generalization(
         "experiment": "magnitude_generalization",
         "model": model_name,
         "source": spec,
-        "source_summary": str(_source_summary_path(model_name)),
+        "source_metadata": str(_source_metadata_path(model_name)),
         "layer": layer,
         "labels": C.MAGNITUDE_LABELS,
         "m_star": m_star,

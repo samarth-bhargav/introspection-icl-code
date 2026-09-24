@@ -1,133 +1,156 @@
 #!/usr/bin/env python3
-"""Regenerate every figure used in the paper PDF from the shipped eval data.
-
-This is a thin orchestrator: it just runs the individual plotting entry points
-(documented one-by-one in README.md) in the right order, writing into
-``plots/`` and ``plots_new/`` so the output paths match the paper's
-``\\includegraphics`` paths exactly.
-
-None of these steps need a GPU or the judge daemon — they read the JSON eval
-logs under ``evals/`` (and, for the three layer-introspection panels whose raw
-sweep logs were not preserved, the shipped Plotly ``.html`` companions).
-
-    python make_figures.py            # all figures
-    python make_figures.py --list     # print the figure -> command map and exit
-
-Run it from the repo root with this repo on PYTHONPATH, e.g.
-
-    PYTHONPATH=. /path/to/venv/bin/python make_figures.py
-"""
+"""Render paper figures from evaluation logs; check required inputs first."""
 from __future__ import annotations
 
 import argparse
-import shutil
+from dataclasses import dataclass
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-PY = sys.executable
-
-# Each step: (human label, argv). argv[0] is either "-m <module>" or a script.
-STEPS: list[tuple[str, list[str]]] = [
-    # ── Magnitude introspection (paper "plots_new/") ─────────────────────────
-    ("magnitude type1/type2 + generalization (+combined) -> plots_new/",
-     ["-m", "icl.plotting.plot_magnitude", "--plots-dir", "plots_new"]),
-    ("magnitude prompt-sensitivity -> plots/type2/",
-     ["-m", "icl.plotting.plot_prompt_sigma", "--plots-dir", "plots"]),
-
-    # ── Emotion-gated arithmetic + amendment successor (full 6-emotion run) ──
-    ("gated type2 math+successor (+prompt-sigma) -> plots/full_6emo/type2/",
-     ["gated6/plot_full_6emo_figs.py"]),
-    ("gated anger-only type2 math+successor -> plots/anger/type2/",
-     ["gated6/plot_anger_figs.py"]),
-    ("gated per-mode math panels -> plots/full_6emo/math_modes/",
-     ["-m", "icl.plotting.plot_math_modes",
-      "--gen_root", "evals/full_6emo", "--out_dir", "plots/full_6emo/math_modes"]),
-    ("gated per-mode successor panels -> plots/full_6emo/successor/",
-     ["-m", "icl.plotting.plot_successor_modes",
-      "--root", "evals/full_6emo/successor_emotions_k_sweep",
-      "--plots-dir", "plots/full_6emo", "--subdir", "successor"]),
-    # type1 (strength-sweep) gated panels — generated from the pre-6emo strength
-    # sweeps that the paper still uses for these appendix figures.
-    ("gated type1 math+successor strength sweeps -> plots/type1/",
-     ["-m", "icl.plotting.plot_strength_sweep", "--repo", ".", "--plots-dir", "plots"]),
-
-    # ── Layer-introspection generalization (rendered from eval JSON) ─────────
-    ("layer generalization per-model (raw) -> plots/",
-     ["-m", "icl.plotting.plot_layer_generalization",
-      "--rerender_from", "evals/regen/layer_generalization/layer_generalization_gemma-31b.json",
-      "--out_dir", "plots/_raw", "--writeup_plot_dir", "plots"]),
-]
-
-# The five per-model layer-generalization rerenders (one entry per model).
-_LAYERGEN_MODELS = ["gemma-31b", "qwen3-32b", "qwen3-8b", "olmo-32b", "olmo-7b"]
-for _m in _LAYERGEN_MODELS[1:]:
-    STEPS.append((f"layer generalization {_m} (raw) -> plots/",
-                  ["-m", "icl.plotting.plot_layer_generalization",
-                   "--rerender_from", f"evals/regen/layer_generalization/layer_generalization_{_m}.json",
-                   "--out_dir", "plots/_raw", "--writeup_plot_dir", "plots"]))
-
-# Uniform paper styling for the figures that were emitted "raw" (the layer
-# generalization rerenders) and for the three shipped layer-introspection
-# panels whose raw sweep logs were not preserved.
-_STYLE_ONLY = [
+MODELS = ("gemma-31b", "qwen3-32b", "qwen3-8b", "olmo-32b", "olmo-7b")
+MAG = "evals/regen/constitution_source_magnitude"
+GATED = "evals/full_6emo"
+LAYER_PANELS = (
     "type1/type1_layer_introspection.html",
     "type2/type2_layer_introspection_merged.html",
     "type2/type2_layer_introspection_prompt_sigma.html",
-    "layer_generalization_gemma31b.html",
-    "layer_generalization_qwen332b.html",
-    "layer_generalization_qwen38b.html",
-    "layer_generalization_olmo32b.html",
-    "layer_generalization_olmo7b.html",
-]
-STEPS.append(("apply paper styling to layer panels -> plots/",
-              ["-m", "icl.plotting.apply_paper_styling", "--plots-dir", "plots", "--only", *_STYLE_ONLY]))
-STEPS.append(("combined side-by-side layer generalization -> plots/",
-              ["-m", "icl.plotting.build_combined_layer", "--plots-dir", "plots"]))
+)
 
 
-def _run(label: str, argv: list[str]) -> None:
-    cmd = [PY, *argv]
-    print(f"\n=== {label}\n    $ {' '.join(cmd)}", flush=True)
-    subprocess.run(cmd, cwd=REPO, check=True)
+@dataclass(frozen=True)
+class Step:
+    name: str
+    commands: tuple[tuple[str, ...], ...]
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]  # PNGs; renderers also write HTML companions.
+    hint: str
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--list", action="store_true", help="print steps and exit")
+def module(name, *args):
+    return ("-m", f"icl.plotting.{name}", *args)
+
+
+def gated_inputs(task):
+    if task == "math":
+        return tuple(f"{GATED}/generation_{m}/math/type2_k_sweep/math_{m}_k*.json" for m in MODELS)
+    return tuple(f"{GATED}/successor_emotions_k_sweep/{m}/k*_var*.json" for m in MODELS)
+
+
+def steps():
+    layer_html = tuple(f"layer_generalization_{m.replace('-', '')}.html" for m in MODELS)
+    return (
+        Step("magnitude", (module("plot_magnitude", "--plots-dir", "plots_new"),),
+             tuple(f"{MAG}/magnitude/{kind}_{m}.json" for m in MODELS for kind in ("type1", "type2"))
+             + tuple(f"{MAG}/magnitude_generalization/magnitude_generalization_{m}.json" for m in MODELS),
+             ("plots_new/type1/type1_magnitude_introspection.png",
+              "plots_new/type2/type2_magnitude_introspection_merged.png",
+              "plots_new/magnitude_generalization_combined.png")
+             + tuple(f"plots_new/magnitude_generalization_{m.replace('-', '')}.png" for m in MODELS),
+             "Run icl.experiments.magnitude for each model."),
+        Step("magnitude-sensitivity", (module("plot_prompt_sigma", "--plots-dir", "plots"),),
+             tuple(f"{MAG}/magnitude/type2_{m}.json" for m in MODELS),
+             ("plots/type2/type2_magnitude_introspection_prompt_sigma.png",),
+             "Run magnitude with prompt variations; the JSON must contain by_prompt summaries."),
+        Step("gated", (module("plot_gated"),), gated_inputs("math") + gated_inputs("successor"),
+             tuple(f"plots/full_6emo/type2/type2_{task}{suffix}.png"
+                   for task in ("math_introspection", "amendment_successor")
+                   for suffix in ("", "_prompt_sigma")),
+             "Generate the six-emotion arithmetic and successor k sweeps."),
+        Step("anger", (module("plot_anger"),), gated_inputs("math") + gated_inputs("successor"),
+             tuple(f"plots/anger/type2/type2_{task}.png" for task in ("math_introspection", "amendment_successor")),
+             "Use six-emotion logs with per-row target_emotion/gating_emotion fields."),
+        Step("math-modes", (module("plot_math_modes", "--gen_root", GATED,
+                                   "--out_dir", "plots/full_6emo/math_modes"),), gated_inputs("math"),
+             tuple(f"plots/full_6emo/math_modes/math_mode_{mode}.png" for mode in ("target", "distractor", "none")),
+             "Generate the six-emotion arithmetic k sweep."),
+        Step("successor-modes", (module("plot_successor_modes", "--root", f"{GATED}/successor_emotions_k_sweep",
+                                        "--plots-dir", "plots/full_6emo", "--subdir", "successor"),),
+             gated_inputs("successor"),
+             tuple(f"plots/full_6emo/successor/successor_{mode}.png" for mode in ("target", "distractor", "none")),
+             "Generate the six-emotion successor k sweep."),
+        Step("gated-strength", (module("plot_strength_sweep", "--repo", ".", "--plots-dir", "plots", "--kind", "type1"),),
+             tuple(f"evals/regen/generation_{m}/math/type1_cmax_sweep/*cmax*.json" for m in MODELS)
+             + tuple(f"evals/regen/successor_cmax_sweep/{m}/fraction_*.json" for m in MODELS),
+             tuple(f"plots/type1/type1_{task}.png" for task in ("math_introspection", "amendment_successor")),
+             "Requires the separate behavioral strength sweeps; see docs/reproduction-status.md."),
+        Step("layer-generalization",
+             tuple(module("plot_layer_generalization", "--rerender_from",
+                          f"evals/regen/layer_generalization/layer_generalization_{m}.json",
+                          "--out_dir", "plots/_raw", "--writeup_plot_dir", "plots") for m in MODELS)
+             + (module("apply_paper_styling", "--plots-dir", "plots", "--only", *layer_html),
+                module("build_combined_layer", "--plots-dir", "plots")),
+             tuple(f"evals/regen/layer_generalization/layer_generalization_{m}.json" for m in MODELS),
+             tuple(f"plots/{p.removesuffix('.html')}.png" for p in layer_html)
+             + ("plots/layer_generalization_combined.png",),
+             "Run icl.experiments.run_model with the layergen stage for each model."),
+        Step("layer-sweeps", (module("plot_layer_sweeps"),),
+             tuple(f"evals/regen/layer/type1_{m}.json" for m in MODELS)
+             + tuple(f"evals/regen/layer/type2_{m}_var*.json" for m in MODELS),
+             tuple(f"plots/{p.removesuffix('.html')}.png" for p in LAYER_PANELS),
+             "Run the layer strength and prompt-variation sweeps for each model."),
+    )
+
+
+def missing_inputs(step, root=REPO):
+    """Check file presence per model, not numerical reproduction or run completeness."""
+    return [pattern for pattern in step.inputs
+            if not any(p.is_file() and p.stat().st_size for p in root.glob(pattern))]
+
+
+def run_step(step, root=REPO):
+    # Remove no files: compare output metadata to detect a renderer silently skipping.
+    before = {p: (root / p).stat().st_mtime_ns if (root / p).exists() else None
+              for p in step.outputs}
+    for argv in step.commands:
+        print(f"[{step.name}] python {' '.join(argv)}", flush=True)
+        subprocess.run([sys.executable, *argv], cwd=root, check=True)
+    missing = [p for p in step.outputs if not (root / p).is_file()
+               or not (root / p).stat().st_size
+               or (root / p).stat().st_mtime_ns == before[p]]
+    if missing:
+        raise RuntimeError(f"{step.name} did not write expected outputs: {', '.join(missing)}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--list", action="store_true", help="list figure groups and commands")
+    ap.add_argument("--check", action="store_true", help="check input file presence without rendering")
+    ap.add_argument("--only", help="comma-separated figure groups from --list (default: all)")
     args = ap.parse_args()
+    selected = list(steps())
+    if args.only:
+        names = set(args.only.split(","))
+        unknown = names - {step.name for step in selected}
+        if unknown:
+            ap.error(f"unknown figure groups: {', '.join(sorted(unknown))}")
+        selected = [step for step in selected if step.name in names]
     if args.list:
-        for label, argv in STEPS:
-            print(f"{label}\n    python {' '.join(argv)}\n")
+        for step in selected:
+            print(step.name)
+            for argv in step.commands:
+                print(f"  python {' '.join(argv)}")
         return
-
-    # Create the output-dir skeleton up front (some renderers require their
-    # --plots-dir to already exist and don't create it themselves).
-    for sub in ("plots/type1", "plots/type2", "plots/full_6emo/type2",
-                "plots/full_6emo/math_modes", "plots/full_6emo/successor",
-                "plots/anger/type2", "plots_new/type1", "plots_new/type2"):
+    blocked = False
+    for step in selected:
+        missing = missing_inputs(step)
+        print(f"{step.name}: {'MISSING INPUTS' if missing else 'input files present'}")
+        if missing:
+            blocked = True
+            for path in missing:
+                print(f"  {path}")
+            print(f"  {step.hint}")
+    if blocked:
+        raise SystemExit(1)
+    if args.check:
+        print("File presence only: this does not verify schemas, complete sweeps, or numerical agreement.")
+        return
+    for sub in ("plots", "plots_new"):
         (REPO / sub).mkdir(parents=True, exist_ok=True)
-
-    # Seed the three layer-introspection panels whose raw sweep logs were not
-    # preserved: their Plotly .html companions live in figure_sources/ and are
-    # re-styled in place by the apply_paper_styling step.
-    seeded = 0
-    for src in (REPO / "figure_sources").rglob("*.html"):
-        dst = REPO / "plots" / src.relative_to(REPO / "figure_sources")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if not dst.exists():
-            shutil.copy2(src, dst)
-            seeded += 1
-    if seeded:
-        print(f"seeded {seeded} layer-introspection .html from figure_sources/")
-
-    for label, argv in STEPS:
-        _run(label, argv)
-
-    # Drop the throwaway raw-render scratch dir.
-    shutil.rmtree(REPO / "plots" / "_raw", ignore_errors=True)
-    print("\nAll figures regenerated under plots/ and plots_new/.")
+    for step in selected:
+        run_step(step)
+    print(f"Rendered {len(selected)} figure groups under plots/ and plots_new/.")
 
 
 if __name__ == "__main__":

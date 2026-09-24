@@ -38,14 +38,16 @@ def main() -> None:
     args = ap.parse_args()
     stages = set(s.strip() for s in args.stages.split(",") if s.strip())
 
+    if stages - set(ALL_STAGES):
+        ap.error(f"Unknown stages: {sorted(stages - set(ALL_STAGES))}")
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ.setdefault("HF_HOME", "/workspace/.cache/huggingface")
     repo_root = Path(__file__).resolve().parents[2]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
         from dotenv import load_dotenv
-        load_dotenv(repo_root / "notebooks" / ".env")
+        load_dotenv(repo_root / ".env")
     except ImportError:
         pass
 
@@ -56,6 +58,7 @@ def main() -> None:
     from icl.experiments.build_library import build_and_calibrate
     from icl.experiments.introspection_sweep import sweep_and_save, pick_star
     from icl.experiments.run_magnitude_gen import run_magnitude_gen
+    from icl.experiments import magnitude as M
     from icl.experiments.run_layer_gen import run_layer_gen
     torch.set_grad_enabled(False)
 
@@ -82,34 +85,38 @@ def main() -> None:
 
     def star_for(task):
         """m*/f*: from this session's type1 if run, else from existing type1 JSON."""
-        p = C.EVALS_ROOT / task / f"type1_{m}.json"
-        return pick_star(p, star_k)["star"]
+        p = (M._type1_path(C.EVALS_ROOT / "constitution_source_magnitude", m)
+             if task == "magnitude" else C.EVALS_ROOT / task / f"type1_{m}.json")
+        return pick_star(p, min(C.TYPE1_K, len(concepts)-1) if task == "magnitude" else star_k)["star"]
 
     stars = {}
-    for task in ["magnitude", "layer"]:
+    if "magnitude" in stages:
+        M.C.ARTIFACTS_ROOT, M.C.EVALS_ROOT = C.ARTIFACTS_ROOT, C.EVALS_ROOT
+        M.run_type1_type2(model, tok, library, cmax, model_name=m,
+            out_root=C.EVALS_ROOT / "constitution_source_magnitude",
+            n_samples=n_samples, samples_per_prompt=n_samples, prompt_variations=n_var,
+            seed=13, kmax=type2_kmax, concepts=concepts, force=True)
+        stars["magnitude"] = star_for("magnitude")
+    for task in ["layer"]:
         if task in stages:
             p1, _ = sweep_and_save(model, tok, library, cmax, model_name=m, task=task,
                                    mode="type1", n_samples=n_samples, kmax=type1_kmax,
-                                   concepts_pool=concepts)
+                                   concepts_pool=concepts, n_prompt_variations=n_var)
             star = pick_star(p1, star_k)["star"]
             stars[task] = star
             print(f"==== {m} {task} STAR = {star} (k={star_k}) ====", flush=True)
             sweep_and_save(model, tok, library, cmax, model_name=m, task=task,
                            mode="type2", strength=star, n_samples=n_samples,
-                           kmax=type2_kmax, concepts_pool=concepts)
-            for v in range(n_var):
-                sweep_and_save(model, tok, library, cmax, model_name=m, task=task,
-                               mode="type2", strength=star, prompt_variation=v,
-                               n_samples=n_samples, kmax=type2_kmax, concepts_pool=concepts)
+                           kmax=type2_kmax, concepts_pool=concepts, n_prompt_variations=n_var)
 
     if "maggen" in stages:
-        ms = stars.get("magnitude") or star_for("magnitude")
+        ms = stars["magnitude"] if "magnitude" in stars else star_for("magnitude")
         run_magnitude_gen(model, tok, library, cmax, model_name=m, m_star=ms,
-                          n_samples=gen_ns, concepts=concepts)
+                          n_samples=gen_ns, concepts=concepts, prompt_variations=n_var)
     if "layergen" in stages:
-        fs = stars.get("layer") or star_for("layer")
+        fs = stars["layer"] if "layer" in stars else star_for("layer")
         run_layer_gen(model, tok, library, cmax, model_name=m, cmax_fraction=fs,
-                      n_samples=gen_ns, concepts=concepts)
+                      n_samples=gen_ns, concepts=concepts, prompt_variations=n_var)
 
     print(f"==== run_model {m} DONE wall={time.time()-t0:.1f}s stars={stars} ====", flush=True)
 

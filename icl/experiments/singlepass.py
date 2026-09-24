@@ -76,6 +76,8 @@ def build_conversation(tok, system_prompt: str, triggers: list[str],
     marker): the plain template already works; render directly with a trailing
     dummy user turn.
     """
+    if enable_thinking:
+        raise ValueError("Single-pass classification requires thinking disabled")
     T = len(triggers)
     marker = thinking_marker(tok, system_prompt, triggers[0])
 
@@ -165,8 +167,11 @@ def group_probs_at(logits_row: torch.Tensor, output_tokens, tok) -> dict[str, fl
 def run_conversation(model, tok, library, *, system_prompt: str, trigger: str,
                      concepts: list[str], labels: list[str], layers: list[int],
                      scales: list[float], output_tokens,
-                     enable_thinking: bool = True) -> list[dict[str, float]]:
+                     enable_thinking: bool = False) -> list[dict[str, float]]:
     """Run one steered single-pass conversation; return per-turn group probs."""
+    import time
+    from icl.experiments.telemetry import emit
+    started = time.monotonic()
     device = next(model.parameters()).device
     triggers = [trigger] * len(concepts)
     full_ids, read_pos = build_conversation(tok, system_prompt, triggers, labels,
@@ -177,7 +182,14 @@ def run_conversation(model, tok, library, *, system_prompt: str, trigger: str,
     triples = [(spans[i], layers[i], library.get_vector(concepts[i]))
                for i in range(len(concepts))]
     logits = forward_with_multi_layer_steering(model, input_ids, triples, scales=scales)
-    return [group_probs_at(logits[0, p], output_tokens, tok) for p in read_pos]
+    probabilities = [group_probs_at(logits[0, p], output_tokens, tok) for p in read_pos]
+    emit("classification_conversation", system_prompt=system_prompt, trigger=trigger,
+         concepts=concepts, targets=labels, layers=layers, scales=scales,
+         input_ids=full_ids, read_positions=read_pos, injection_positions=spans,
+         probabilities=probabilities,
+         predictions=[max(p, key=p.get) for p in probabilities],
+         seconds=time.monotonic() - started)
+    return probabilities
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +240,10 @@ def run_sweep(model, tok, library, *, task: str, strengths: list[float],
     per_strength = []
     for strength in strengths:
         by_k = [{"k": k, "n": 0, "n_correct": 0, "p_correct": []} for k in range(T)]
-        for concepts, labels in plans:
+        for sample_id, (concepts, labels) in enumerate(plans):
+            from icl.experiments.telemetry import emit
+            emit("classification_sample", task=task, strength=strength, seed=seed,
+                 sample_id=sample_id, system_prompt=system_prompt, trigger=trigger)
             if task == "magnitude":
                 layers = [magnitude_layer] * T
                 scales = [strength * base[labels[i]] * C.cmax_or_floor(cmax, concepts[i], magnitude_layer)

@@ -33,28 +33,20 @@ _PRECISION = 0.1  # binary search stops when hi - lo < this
 _MAX_SEARCH_LO = 0.1   # lowest fraction to test for max strength
 _MAX_SEARCH_HI = 5.0   # highest fraction to test for max strength
 
-# Factual QA pairs — verified to mostly produce single-token answers.
+# Twenty arithmetic questions with single-digit answers. Some supported
+# tokenizers split multi-digit numbers, so the old suite silently evaluated
+# fewer than the manuscript's 20 questions. Require the entire suite below.
 _QA_PAIRS = [
-    ("What is 2+2?", "4"),
-    ("What is 3+5?", "8"),
-    ("What is 10-3?", "7"),
-    ("What is 9+1?", "10"),
-    ("What is 4+4?", "8"),
-    ("What is 15-5?", "10"),
-    ("What is 7+3?", "10"),
-    ("What is 8-2?", "6"),
-    ("What is 3*3?", "9"),
-    ("What is 20-7?", "13"),
-    ("What is 5+6?", "11"),
-    ("What is 100-1?", "99"),
-    ("What is 12+8?", "20"),
-    ("What is 7*2?", "14"),
-    ("What is 9+9?", "18"),
-    ("What is 6+7?", "13"),
-    ("What is 11-4?", "7"),
-    ("What is 5*5?", "25"),
-    ("What is 30-10?", "20"),
-    ("What is 8+8?", "16"),
+    ("What is 2+2?", "4"), ("What is 3+5?", "8"),
+    ("What is 10-3?", "7"), ("What is 9-1?", "8"),
+    ("What is 4+4?", "8"), ("What is 15-6?", "9"),
+    ("What is 7-3?", "4"), ("What is 8-2?", "6"),
+    ("What is 3*3?", "9"), ("What is 12-7?", "5"),
+    ("What is 5+1?", "6"), ("What is 10-1?", "9"),
+    ("What is 12-8?", "4"), ("What is 7-2?", "5"),
+    ("What is 9-9?", "0"), ("What is 6+2?", "8"),
+    ("What is 11-4?", "7"), ("What is 2*3?", "6"),
+    ("What is 3+1?", "4"), ("What is 8-5?", "3"),
 ]
 
 
@@ -103,15 +95,18 @@ def _prepare_comprehension_inputs(
     device: str | torch.device,
 ) -> list[tuple[Tensor, list[int], list[int]]]:
     """Tokenize QA pairs. Returns ``(input_ids, question_positions, answer_ids)``."""
+    from icl.experiments.telemetry import emit
     inputs = []
-    for question, answer in _QA_PAIRS:
+    for question_id, (question, answer) in enumerate(_QA_PAIRS):
         answer_ids = []
         for variant in [answer, f" {answer}"]:
             toks = tokenizer.encode(variant, add_special_tokens=False)
             if len(toks) == 1:
                 answer_ids.append(toks[0])
         if not answer_ids:
-            continue
+            emit("calibration_question_skipped", question_id=question_id,
+                 question=question, answer=answer, reason="no_single_token_answer")
+            raise ValueError(f"Calibration answer {answer!r} is not a single token")
         messages = [
             {"role": "system", "content": "Answer with just the number, nothing else."},
             {"role": "user", "content": question},
@@ -124,6 +119,12 @@ def _prepare_comprehension_inputs(
         positions = _find_text_positions(tokenizer, ids_list, question)
         if positions is not None:
             inputs.append((input_ids, positions, answer_ids))
+            emit("calibration_question", question_id=question_id, question=question,
+                 answer=answer, input_ids=ids_list, positions=positions, answer_ids=answer_ids)
+        else:
+            emit("calibration_question_skipped", question_id=question_id,
+                 question=question, answer=answer, reason="question_span_not_found")
+            raise ValueError(f"Calibration question span not found: {question!r}")
     return inputs
 
 
@@ -138,10 +139,12 @@ def _eval_comprehension(
     layer: int,
     fraction: float,
     comp_inputs: list[tuple[Tensor, list[int], list[int]]],
+    *, concept: str | None = None,
 ) -> float:
     """Return QA accuracy at the given steering fraction."""
+    from icl.experiments.telemetry import emit
     correct = 0
-    for input_ids, positions, answer_ids in comp_inputs:
+    for question_index, (input_ids, positions, answer_ids) in enumerate(comp_inputs):
         pairs = [(positions, sv)]
         logits = forward_with_positional_steering(
             model, input_ids, pairs, layer, scales=[fraction],
@@ -149,6 +152,11 @@ def _eval_comprehension(
         top_tok = logits[0, -1, :].argmax().item()
         if top_tok in answer_ids:
             correct += 1
+        emit("calibration_outcome", concept=concept, layer=layer, coefficient=fraction,
+             question_index=question_index, prediction=top_tok, target_ids=answer_ids,
+             correct=top_tok in answer_ids)
+    emit("calibration_metric", concept=concept, layer=layer, coefficient=fraction,
+         numerator=correct, denominator=len(comp_inputs), reduction="mean_over_questions")
     return correct / len(comp_inputs) if comp_inputs else 0.0
 
 
@@ -180,6 +188,9 @@ def compute_max_strength(
     """
     sv = library.get_vector(concept)
     device = next(model.parameters()).device
+    from icl.experiments.telemetry import emit
+    emit("calibration_start", concept=concept, layer=layer, threshold=threshold,
+         precision=precision, lower_bound=search_lo, upper_bound=search_hi)
 
     comp_inputs = _comp_inputs or _prepare_comprehension_inputs(tokenizer, device)
     if len(comp_inputs) < 5:
@@ -189,18 +200,18 @@ def compute_max_strength(
         )
 
     # Check that the lower bound itself passes.
-    if _eval_comprehension(model, sv, layer, search_lo, comp_inputs) < threshold:
+    if _eval_comprehension(model, sv, layer, search_lo, comp_inputs, concept=concept) < threshold:
         return None
 
     # Check if the upper bound still passes (no ceiling found).
-    if _eval_comprehension(model, sv, layer, search_hi, comp_inputs) >= threshold:
+    if _eval_comprehension(model, sv, layer, search_hi, comp_inputs, concept=concept) >= threshold:
         return search_hi
 
     # Binary search: lo always passes, hi always fails.
     lo, hi = search_lo, search_hi
     while hi - lo > precision:
         mid = (lo + hi) / 2
-        acc = _eval_comprehension(model, sv, layer, mid, comp_inputs)
+        acc = _eval_comprehension(model, sv, layer, mid, comp_inputs, concept=concept)
         logger.debug("  max_strength: frac=%.3f acc=%.2f", mid, acc)
         if acc >= threshold:
             lo = mid
